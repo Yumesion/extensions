@@ -12,13 +12,13 @@
         "name": "Solaris Scans",
         "packageName": "eu.kanade.tachiyomi.extension.fr.solarisscans",
         "resources": {
-          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.solarisscans-v1.6.1.apk",
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.solarisscans-v1.6.2.apk",
           "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon-solaris.png"
         },
         "extensionLib": "1.6",
-        "versionCode": 106001,
-        "versionName": "1.6.1",
-        "contentWarning": "MIXED",
+        "versionCode": 106002,
+        "versionName": "1.6.2",
+        "contentWarning": "SAFE",
         "sources": [
           {
             "id": 1172624746268381921,

@@ -14,7 +14,7 @@ https://raw.githubusercontent.com/Yumesion/extensions/main/index.json
 
 | Extension | Langue | Version | Contenu |
 |---|---|---|---|
-| **Solaris Scans** | 🇫🇷 Français | 1.6.1 | MIXED (SFW + 18+ actif) |
+| **Solaris Scans** | 🇫🇷 Français | 1.6.2 | SAFE (SFW uniquement) |
 | **Yurei Scan** | 🇫🇷 Français | 1.6.2 | MIXED (SFW + 18+) |
 
 ## Structure
@@ -32,5 +32,5 @@ Le code source est fourni ici pour référence et versionning.
 ### Note 18+ (Solaris Scans)
 
 Le site Solaris Scans masque son contenu adulte derrière un « Mode 18+ » (désactivé par défaut).
-L'extension envoie en permanence le cookie `solaris_adult_mode=1` pour activer ce mode côté serveur,
-afin d'afficher l'intégralité du catalogue (SFW + 18+).
+L'extension **n'active pas** ce mode : elle n'affiche donc que le contenu classique (SFW),
+comme le site sans le mode 18+.

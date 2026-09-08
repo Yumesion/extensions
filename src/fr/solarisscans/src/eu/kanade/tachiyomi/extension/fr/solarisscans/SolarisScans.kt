@@ -23,13 +23,6 @@ abstract class SolarisScans : KeiSource() {
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         rateLimit(2)
-        // Active le « Mode 18+ » côté serveur (cookie lu par solaris-core)
-        addInterceptor { chain ->
-            val request = chain.request().newBuilder()
-                .header("Cookie", "solaris_adult_mode=1")
-                .build()
-            chain.proceed(request)
-        }
     }
 
     // ============================== Popular ===============================

@@ -6,8 +6,8 @@ plugins {
 
 keiyoushi {
     name = "Solaris Scans"
-    versionCode = 1
-    contentWarning = ContentWarning.MIXED
+    versionCode = 2
+    contentWarning = ContentWarning.SAFE
     libVersion = "1.6"
 
     source {
