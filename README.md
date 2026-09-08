@@ -14,15 +14,23 @@ https://raw.githubusercontent.com/Yumesion/extensions/main/index.json
 
 | Extension | Langue | Version | Contenu |
 |---|---|---|---|
+| **Solaris Scans** | 🇫🇷 Français | 1.6.1 | MIXED (SFW + 18+ actif) |
 | **Yurei Scan** | 🇫🇷 Français | 1.6.2 | MIXED (SFW + 18+) |
 
 ## Structure
 
 - `index.json` — index des extensions (format `NetworkExtensionStore`)
 - `apk/` — APK compilés
-- `src/fr/yureiscan/` — code source (pattern `KeiSource`, libVersion 1.6)
+- `icon-solaris.png`, `icon-yurei.png` — icônes des extensions
+- `src/fr/solarisscans/`, `src/fr/yureiscan/` — code source (pattern `KeiSource`, libVersion 1.6)
 
 ## Développement
 
-L'extension est compilée via le build system keiyoushi (`extensions-source`).
+Les extensions sont compilées via le build system keiyoushi (`extensions-source`).
 Le code source est fourni ici pour référence et versionning.
+
+### Note 18+ (Solaris Scans)
+
+Le site Solaris Scans masque son contenu adulte derrière un « Mode 18+ » (désactivé par défaut).
+L'extension envoie en permanence le cookie `solaris_adult_mode=1` pour activer ce mode côté serveur,
+afin d'afficher l'intégralité du catalogue (SFW + 18+).
