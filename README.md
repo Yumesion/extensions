@@ -14,7 +14,7 @@ https://raw.githubusercontent.com/Yumesion/extensions/main/index.json
 
 | Extension | Langue | Version | Contenu |
 |---|---|---|---|
-| **Yurei Scan** | 🇫🇷 Français | 1.6.1 | MIXED (SFW + 18+) |
+| **Yurei Scan** | 🇫🇷 Français | 1.6.2 | MIXED (SFW + 18+) |
 
 ## Structure
 
