@@ -1,0 +1,36 @@
+{
+  "name": "Yume Extensions",
+  "badgeLabel": "Yume",
+  "signingKey": "88b18c5df3a7b07f363ccdcc9a727308ea27d33d5e98e790da3c20785f7346ea",
+  "contact": {
+    "website": "https://yurei-scan.fr",
+    "discord": null
+  },
+  "extensionList": {
+    "extensions": [
+      {
+        "name": "Yurei Scan",
+        "packageName": "eu.kanade.tachiyomi.extension.fr.yureiscan",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.yureiscan-v1.6.1.apk",
+          "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "MIXED",
+        "sources": [
+          {
+            "id": 2709762600252838524,
+            "name": "Yurei Scan",
+            "language": "fr",
+            "homeUrl": "https://yurei-scan.fr",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      }
+    ]
+  },
+  "extensionListUrl": null
+}
