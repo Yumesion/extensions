@@ -49,6 +49,10 @@ abstract class ScanManga :
     private val baseImageUrl = "https://static.$domain/img/manga"
     private val baseSearchUrl = "https://bqj.$domain/search/quick.json"
 
+    // Le lecteur (chapitres) est bloqué par Cloudflare sur le sous-domaine mobile `m.` ;
+    // la version desktop `www.` sert le chapitre avec le script LEL sans challenge.
+    private val desktopBaseUrl = "https://www.$domain"
+
     override val supportsLatest = true
 
     private val preferences by getPreferencesLazy()
@@ -90,7 +94,7 @@ abstract class ScanManga :
     override fun popularMangaRequest(page: Int): Request = GET("$baseUrl/TOP-Manga-Webtoon-45.html", headers)
 
     override fun popularMangaParse(response: Response): MangasPage {
-        val mangas = response.asJsoup().select("#carouselTOPContainer > div.top").map { element ->
+        val mangas = response.asJsoup().select("#carouselTOPContainer div.top").map { element ->
             SManga.create().apply {
                 val titleElement = element.selectFirst("a.atop")!!
 
@@ -256,7 +260,7 @@ abstract class ScanManga :
 
     override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {
         val context = applicationContext
-        val chapterUrl = "$baseUrl${chapter.url}"
+        val chapterUrl = "$desktopBaseUrl${chapter.url}"
         val isReader = Exception().stackTrace.any { it.className.contains("reader") }
 
         fun fetch(): String? = try {
