@@ -9,6 +9,28 @@
   "extensionList": {
     "extensions": [
       {
+        "name": "Black Army",
+        "packageName": "eu.kanade.tachiyomi.extension.fr.blackarmy",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.blackarmy-v1.6.1.apk",
+          "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon-blackarmy.png"
+        },
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 4414995737762266563,
+            "name": "Black Army",
+            "language": "fr",
+            "homeUrl": "https://blackarmy.fr",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Solaris Scans",
         "packageName": "eu.kanade.tachiyomi.extension.fr.solarisscans",
         "resources": {
