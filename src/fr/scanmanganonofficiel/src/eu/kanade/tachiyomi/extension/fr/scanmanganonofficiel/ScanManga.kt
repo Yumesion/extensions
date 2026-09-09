@@ -397,6 +397,7 @@ abstract class ScanManga :
             .add("Origin", "${documentUrl.scheme}://${documentUrl.host}")
             .add("Referer", documentUrl.toString())
             .add("Token", LEL_TOKEN)
+            .add("source", documentUrl.toString())
             .build()
 
         val pageListRequest = POST(

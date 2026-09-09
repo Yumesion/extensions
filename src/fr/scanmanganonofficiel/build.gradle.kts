@@ -6,7 +6,7 @@ plugins {
 
 keiyoushi {
     name = "ScanManga (non officiel)"
-    versionCode = 2
+    versionCode = 3
     contentWarning = ContentWarning.MIXED
     libVersion = "1.4"
 
