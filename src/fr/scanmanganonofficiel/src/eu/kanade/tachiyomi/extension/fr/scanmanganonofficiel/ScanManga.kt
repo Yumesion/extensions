@@ -396,11 +396,20 @@ abstract class ScanManga :
 
         val requestBody = injectVariables(REQUEST_BODY, availableVariables)
         val pageListUrl = injectVariables(PAGE_LIST_URL, availableVariables)
-        val requestHeaders = headers.newBuilder()
-            .add("Origin", "${documentUrl.scheme}://${documentUrl.host}")
-            .add("Referer", documentUrl.toString())
-            .add("Token", LEL_TOKEN)
+
+        // Headers « fetch() » côté navigateur (cross-origin www -> bqj), pas les headers de
+        // navigation du site (sec-fetch-site: none, accept text/html…) qui trahissent un scraper.
+        val origin = "${documentUrl.scheme}://${documentUrl.host}"
+        val requestHeaders = super.headersBuilder()
+            .add("Origin", origin)
+            .add("Referer", "$origin/")
             .add("source", documentUrl.toString())
+            .add("Token", LEL_TOKEN)
+            .add("sec-fetch-site", "same-site")
+            .add("sec-fetch-mode", "cors")
+            .add("sec-fetch-dest", "empty")
+            .add("accept", "*/*")
+            .add("accept-language", "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
             .build()
 
         val pageListRequest = POST(
@@ -412,11 +421,15 @@ abstract class ScanManga :
         val lelResponse = client.newBuilder().cookieJar(CookieJar.NO_COOKIES).build()
             .newCall(pageListRequest).execute().use { response ->
                 if (!response.isSuccessful) {
-                    val snippet = response.body.string().take(200)
-                    error(
-                        "Unexpected error while fetching lel. HTTP ${response.code} " +
-                            "[URL: $pageListUrl] [BODY: $snippet]",
-                    )
+                    val raw = response.body.string()
+                    val kind = when {
+                        raw.contains("Just a moment") || raw.contains("challenges.cloudflare") -> "CLOUDFLARE"
+                        raw.contains("\"error\"") -> "JSON:" + raw.replace(Regex("\\s+"), " ").take(50)
+                        raw.isBlank() -> "VIDE"
+                        raw.trimStart().startsWith("<") -> "HTML:" + raw.replace(Regex("<[^>]+>"), " ").replace(Regex("\\s+"), " ").trim().take(40)
+                        else -> "TXT:" + raw.replace(Regex("\\s+"), " ").take(50)
+                    }
+                    error("LEL ${response.code} $kind")
                 }
                 dataAPI(response.body.string(), chapterId.toInt())
             }
