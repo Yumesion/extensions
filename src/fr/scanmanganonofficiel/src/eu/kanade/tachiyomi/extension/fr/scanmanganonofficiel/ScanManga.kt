@@ -2,7 +2,10 @@ package eu.kanade.tachiyomi.extension.fr.scanmanganonofficiel
 
 import android.annotation.SuppressLint
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -409,7 +412,11 @@ abstract class ScanManga :
         val lelResponse = client.newBuilder().cookieJar(CookieJar.NO_COOKIES).build()
             .newCall(pageListRequest).execute().use { response ->
                 if (!response.isSuccessful) {
-                    error("Unexpected error while fetching lel. HTTP ${response.code}")
+                    val snippet = response.body.string().take(200)
+                    error(
+                        "Unexpected error while fetching lel. HTTP ${response.code} " +
+                            "[URL: $pageListUrl] [BODY: $snippet]",
+                    )
                 }
                 dataAPI(response.body.string(), chapterId.toInt())
             }
@@ -480,9 +487,27 @@ abstract class ScanManga :
         }
 
         return Base64.encodeToString(
-            """{"gpu":"$currentValue","connection":"cellular"}""".toByteArray(),
+            """{"gpu":"$currentValue","connection":"${getConnectionType()}"}""".toByteArray(),
             Base64.NO_WRAP,
         )
+    }
+
+    // Reproduit `navigator.connection.type` du lecteur du site (wifi/cellular/ethernet/…).
+    // Le site envoie la valeur RÉELLE de la connexion ; un « cellular » codé en dur est un
+    // signal de scraper que le serveur peut utiliser pour rejeter la requête (404/503).
+    private fun getConnectionType(): String = try {
+        val cm = applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = cm.activeNetwork ?: return "none"
+        val caps = cm.getNetworkCapabilities(network) ?: return "unknown"
+        when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH) -> "bluetooth"
+            else -> "unknown"
+        }
+    } catch (_: Exception) {
+        "unknown"
     }
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
