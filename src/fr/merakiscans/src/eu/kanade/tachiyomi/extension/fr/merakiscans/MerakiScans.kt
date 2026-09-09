@@ -11,6 +11,7 @@ import keiyoushi.network.get
 import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.asJsoup
+import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
@@ -66,7 +67,7 @@ abstract class MerakiScans : KeiSource() {
         val document = client.get("$baseUrl${manga.url}").asJsoup()
         return SMangaUpdate(
             manga = if (fetchDetails) parseMangaDetails(document, manga) else manga,
-            chapters = if (fetchChapters) parseChapterList(document) else chapters,
+            chapters = if (fetchChapters) parseChapterList(document, manga.url) else chapters,
         )
     }
 
@@ -85,7 +86,27 @@ abstract class MerakiScans : KeiSource() {
         }
     }
 
-    private fun parseChapterList(document: Document): List<SChapter> = document.select("div.chapters-list a.chapter-row").map(::chapterFromElement)
+    private suspend fun parseChapterList(document: Document, mangaUrl: String): List<SChapter> {
+        val chapters = document.select("div.chapters-list a.chapter-row").map(::chapterFromElement).toMutableList()
+
+        // La liste des chapitres est paginée côté serveur (10 par page). Le site charge les
+        // pages suivantes via `?order=desc&page=N` avec le header X-Requested-With: XMLHttpRequest.
+        val lastPage = document.select(".pagination a.page-btn[href]")
+            .mapNotNull { it.attr("href").let { href -> PAGE_REGEX.find(href)?.groupValues?.get(1)?.toIntOrNull() } }
+            .maxOrNull() ?: 1
+
+        for (page in 2..lastPage) {
+            val pageUrl = "$baseUrl$mangaUrl".toHttpUrl().newBuilder()
+                .addQueryParameter("order", "desc")
+                .addQueryParameter("page", page.toString())
+                .build()
+            chapters += client.get(pageUrl, XHR_HEADERS).asJsoup()
+                .select("div.chapters-list a.chapter-row")
+                .map(::chapterFromElement)
+        }
+
+        return chapters
+    }
 
     private fun chapterFromElement(element: Element): SChapter = SChapter.create().apply {
         setUrlWithoutDomain(element.absUrl("href"))
@@ -125,6 +146,9 @@ abstract class MerakiScans : KeiSource() {
     }
 
     companion object {
+        private val XHR_HEADERS = Headers.headersOf("X-Requested-With", "XMLHttpRequest")
+        private val PAGE_REGEX = Regex("""page=(\d+)""")
+
         // Abréviations de mois françaises vues sur le site (« Jui » = juillet, format Django « b »).
         private val MONTHS = mapOf(
             "jan" to 1, "janv" to 1, "fev" to 2, "fevr" to 2, "févr" to 2,

@@ -34,12 +34,12 @@
         "name": "Meraki Scans",
         "packageName": "eu.kanade.tachiyomi.extension.fr.merakiscans",
         "resources": {
-          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.merakiscans-v1.6.1.apk",
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.merakiscans-v1.6.2.apk",
           "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon-merakiscans.png"
         },
         "extensionLib": "1.6",
-        "versionCode": 106001,
-        "versionName": "1.6.1",
+        "versionCode": 106002,
+        "versionName": "1.6.2",
         "contentWarning": "SAFE",
         "sources": [
           {
