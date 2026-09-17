@@ -120,20 +120,34 @@ abstract class BanchanScan : KeiSource() {
 
     /**
      * Charge [url] dans une WebView (qui exécute le JavaScript de rendu), attend
-     * que React ait hydraté la page (le DOM rendu dépasse ~15 Ko), puis renvoie
-     * le DOM complet.
+     * que React ait fini de rendre (taille du DOM stable sur 2 sondages consécutifs),
+     * puis renvoie le DOM complet. Un simple délai fixe ou un seuil de taille seul
+     * extrayait trop tôt (1 œuvre au lieu de 24, aucun chapitre).
      */
     private suspend fun renderHtml(url: String): Document {
-        val html = runWebView<String>(timeout = 30.seconds) {
+        val html = runWebView<String>(timeout = 45.seconds) {
             javaScriptEnabled = true
             domStorageEnabled = true
 
             onPageFinished { _ ->
+                var lastLength = 0
+                var stable = 0
                 poll(1000.milliseconds) {
-                    evaluateJs("document.documentElement.outerHTML") { value ->
-                        runCatching { value.parseAs<String>() }.getOrNull()
-                            ?.takeIf { it.length > 15000 }
-                            ?.let { resolve(it) }
+                    evaluateJs("document.documentElement.outerHTML.length") { value ->
+                        val len = value.toIntOrNull() ?: 0
+                        if (len == lastLength) {
+                            stable++
+                        } else {
+                            lastLength = len
+                            stable = 0
+                        }
+                        if (len > 20000 && stable >= 2) {
+                            evaluateJs("document.documentElement.outerHTML") { rendered ->
+                                runCatching { rendered.parseAs<String>() }.getOrNull()
+                                    ?.takeIf { it.length > 20000 }
+                                    ?.let { resolve(it) }
+                            }
+                        }
                     }
                 }
             }
