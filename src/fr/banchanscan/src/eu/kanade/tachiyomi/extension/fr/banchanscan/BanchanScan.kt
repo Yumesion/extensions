@@ -16,6 +16,7 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.io.IOException
+import java.util.Collections
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -29,16 +30,19 @@ import kotlin.time.Duration.Companion.seconds
 @Source
 abstract class BanchanScan : KeiSource() {
 
+    @Volatile
+    private var lastRscUrls: List<String> = emptyList()
+
     // ============================== Popular ===============================
 
     override suspend fun getPopularManga(page: Int): MangasPage {
         val document = renderHtml("$baseUrl/oeuvres")
         val mangas = document.select(CARD_SELECTOR).map(::mangaFromElement)
         if (mangas.size < 5) {
-            // Diagnostic : rendu partiel, on renvoie le texte rendu pour comprendre.
+            // Diagnostic : rendu partiel, on renvoie les URL RSC + texte rendu.
             throw IOException(
-                "Catalogue partiel (${mangas.size} œuvre(s) trouvée(s)) — texte rendu: " +
-                    document.text().trim().take(400),
+                "Catalogue partiel (${mangas.size} œuvre(s)) — RSC: ${lastRscUrls.joinToString(" | ")} — " +
+                    "texte: ${document.text().trim().take(250)}",
             )
         }
         return MangasPage(mangas, hasNextPage = false)
@@ -133,12 +137,21 @@ abstract class BanchanScan : KeiSource() {
      * de liens+images identique sur 2 sondages consécutifs) avant de renvoyer le DOM complet.
      */
     private suspend fun renderHtml(url: String): Document {
+        val rscUrls = Collections.synchronizedList(mutableListOf<String>())
         val html = runWebView<String>(timeout = 45.seconds) {
             javaScriptEnabled = true
             domStorageEnabled = true
             // Rendu « desktop » : un UA desktop + viewport large force la grille complète.
             useWideViewPort = true
             userAgent = DESKTOP_USER_AGENT
+
+            // Capture les requêtes RSC (`.rsc?_rsc=…`) émises par le client, pour
+            // comprendre le protocole de chargement paresseux (diagnostic).
+            interceptRequest { request ->
+                val u = request.url.toString()
+                if (".rsc" in u || "_rsc" in u) rscUrls.add(u)
+                null
+            }
 
             onPageFinished { _ ->
                 var lastCount = -1
@@ -173,6 +186,7 @@ abstract class BanchanScan : KeiSource() {
             }
             loadUrl(url)
         }
+        lastRscUrls = rscUrls.toList()
         return Jsoup.parse(html)
     }
 
