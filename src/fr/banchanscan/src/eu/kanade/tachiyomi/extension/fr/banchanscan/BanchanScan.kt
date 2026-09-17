@@ -22,6 +22,7 @@ abstract class BanchanScan : KeiSource() {
 
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         rateLimit(2)
+        addInterceptor(CloudflareBypass.interceptor())
     }
 
     // ============================== Popular ===============================
