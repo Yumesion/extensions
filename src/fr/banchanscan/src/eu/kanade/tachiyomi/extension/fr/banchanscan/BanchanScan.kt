@@ -16,6 +16,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.io.IOException
 
 @Source
 abstract class BanchanScan : KeiSource() {
@@ -27,10 +28,7 @@ abstract class BanchanScan : KeiSource() {
 
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage {
-        val document = client.get("$baseUrl/oeuvres").asJsoup()
-        return MangasPage(document.select(CARD_SELECTOR).map(::mangaFromElement), hasNextPage = false)
-    }
+    override suspend fun getPopularManga(page: Int): MangasPage = fetchCatalogue()
 
     // ============================== Latest ================================
 
@@ -47,7 +45,25 @@ abstract class BanchanScan : KeiSource() {
         val results = document.select(CARD_SELECTOR)
             .map(::mangaFromElement)
             .filter { it.title.contains(query, ignoreCase = true) }
+        if (results.isEmpty() && document.select(CARD_SELECTOR).isEmpty()) {
+            // Même catalogue vide : la page n'est pas celle attendue (challenge/erreur).
+            throw unexpectedPage(document)
+        }
         return MangasPage(results, hasNextPage = false)
+    }
+
+    /** Récupère le catalogue ; lève une erreur explicite si la page ne contient aucune œuvre. */
+    private suspend fun fetchCatalogue(): MangasPage {
+        val document = client.get("$baseUrl/oeuvres").asJsoup()
+        val mangas = document.select(CARD_SELECTOR).map(::mangaFromElement)
+        if (mangas.isEmpty()) throw unexpectedPage(document)
+        return MangasPage(mangas, hasNextPage = false)
+    }
+
+    private fun unexpectedPage(document: Document): IOException {
+        val title = document.selectFirst("title")?.text()?.trim() ?: "(aucun titre)"
+        val excerpt = document.text().trim().take(300)
+        return IOException("Réponse inattendue de banchanscan.fr — titre: « $title » — extrait: $excerpt")
     }
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
