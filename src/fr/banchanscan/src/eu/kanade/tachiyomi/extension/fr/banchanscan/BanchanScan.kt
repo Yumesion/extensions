@@ -128,37 +128,43 @@ abstract class BanchanScan : KeiSource() {
     // ============================== Helpers ===============================
 
     /**
-     * Charge [url] dans une WebView (qui exécute le JavaScript de rendu), attend
-     * que React ait fini de rendre (taille du DOM stable sur 2 sondages consécutifs),
-     * puis renvoie le DOM complet. Un simple délai fixe ou un seuil de taille seul
-     * extrayait trop tôt (1 œuvre au lieu de 24, aucun chapitre).
+     * Charge [url] dans une WebView (qui exécute le JavaScript de rendu), fait défiler
+     * la page (chargement paresseux éventuel), puis attend que le DOM soit stable (nombre
+     * de liens+images identique sur 2 sondages consécutifs) avant de renvoyer le DOM complet.
      */
     private suspend fun renderHtml(url: String): Document {
         val html = runWebView<String>(timeout = 45.seconds) {
             javaScriptEnabled = true
             domStorageEnabled = true
-            // Rendu « desktop » : le site sert un layout mobile (1 seule carte) sur
-            // une WebView par défaut. Un UA desktop + viewport large force la grille
-            // complète des œuvres/chapitres.
+            // Rendu « desktop » : un UA desktop + viewport large force la grille complète.
             useWideViewPort = true
             userAgent = DESKTOP_USER_AGENT
 
             onPageFinished { _ ->
-                var lastLength = 0
+                var lastCount = -1
                 var stable = 0
-                poll(1000.milliseconds) {
-                    evaluateJs("document.documentElement.outerHTML.length") { value ->
-                        val len = value.toIntOrNull() ?: 0
-                        if (len == lastLength) {
+                var polls = 0
+                poll(1500.milliseconds) {
+                    polls++
+                    evaluateJs(
+                        """
+                        (function() {
+                            window.scrollTo(0, document.body.scrollHeight);
+                            return document.querySelectorAll('a[href], img').length;
+                        })()
+                        """.trimIndent(),
+                    ) { value ->
+                        val count = value.toIntOrNull() ?: 0
+                        if (count == lastCount) {
                             stable++
                         } else {
-                            lastLength = len
+                            lastCount = count
                             stable = 0
                         }
-                        if (len > 20000 && stable >= 2) {
+                        if ((count >= 20 && stable >= 2) || polls >= 8) {
                             evaluateJs("document.documentElement.outerHTML") { rendered ->
                                 runCatching { rendered.parseAs<String>() }.getOrNull()
-                                    ?.takeIf { it.length > 20000 }
+                                    ?.takeIf { it.isNotBlank() }
                                     ?.let { resolve(it) }
                             }
                         }
