@@ -7,28 +7,33 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import keiyoushi.annotation.Source
-import keiyoushi.network.get
-import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
-import keiyoushi.utils.asJsoup
+import keiyoushi.utils.parseAs
+import keiyoushi.utils.runWebView
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
+import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.io.IOException
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
+/**
+ * Banchan Scan (banchanscan.fr) — site sous React Server Components (Vinext) :
+ * le contenu (catalogue, fiches, chapitres) est rendu CÔTÉ CLIENT par JavaScript.
+ * OkHttp (sans JS) ne reçoit donc que la coquille HTML (titre + données RSC
+ * sérialisées), sans aucune œuvre. On charge donc chaque page dans une WebView
+ * (qui exécute le JS et rend le contenu), puis on extrait le DOM rendu.
+ */
 @Source
 abstract class BanchanScan : KeiSource() {
 
-    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
-        rateLimit(2)
-        addInterceptor(CloudflareBypass.interceptor())
-    }
-
     // ============================== Popular ===============================
 
-    override suspend fun getPopularManga(page: Int): MangasPage = fetchCatalogue()
+    override suspend fun getPopularManga(page: Int): MangasPage {
+        val document = renderHtml("$baseUrl/oeuvres")
+        return MangasPage(document.select(CARD_SELECTOR).map(::mangaFromElement), hasNextPage = false)
+    }
 
     // ============================== Latest ================================
 
@@ -37,33 +42,14 @@ abstract class BanchanScan : KeiSource() {
 
     // ============================== Search ================================
 
-    // La recherche du site est côté client (filtrage JS de la liste déjà chargée) :
-    // il n'y a pas d'endpoint serveur de recherche. On récupère le catalogue et on
-    // filtre par titre localement.
+    // La recherche du site est aussi côté client (filtrage de la liste rendue) :
+    // pas d'endpoint serveur. On récupère le catalogue rendu et on filtre par titre.
     override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
-        val document = client.get("$baseUrl/oeuvres").asJsoup()
+        val document = renderHtml("$baseUrl/oeuvres")
         val results = document.select(CARD_SELECTOR)
             .map(::mangaFromElement)
             .filter { it.title.contains(query, ignoreCase = true) }
-        if (results.isEmpty() && document.select(CARD_SELECTOR).isEmpty()) {
-            // Même catalogue vide : la page n'est pas celle attendue (challenge/erreur).
-            throw unexpectedPage(document)
-        }
         return MangasPage(results, hasNextPage = false)
-    }
-
-    /** Récupère le catalogue ; lève une erreur explicite si la page ne contient aucune œuvre. */
-    private suspend fun fetchCatalogue(): MangasPage {
-        val document = client.get("$baseUrl/oeuvres").asJsoup()
-        val mangas = document.select(CARD_SELECTOR).map(::mangaFromElement)
-        if (mangas.isEmpty()) throw unexpectedPage(document)
-        return MangasPage(mangas, hasNextPage = false)
-    }
-
-    private fun unexpectedPage(document: Document): IOException {
-        val title = document.selectFirst("title")?.text()?.trim() ?: "(aucun titre)"
-        val excerpt = document.text().trim().take(300)
-        return IOException("Réponse inattendue de banchanscan.fr — titre: « $title » — extrait: $excerpt")
     }
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
@@ -83,7 +69,7 @@ abstract class BanchanScan : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate {
-        val document = client.get("$baseUrl${manga.url}").asJsoup()
+        val document = renderHtml("$baseUrl${manga.url}")
         return SMangaUpdate(
             manga = if (fetchDetails) parseMangaDetails(document, manga) else manga,
             chapters = if (fetchChapters) parseChapterList(document, manga.url) else chapters,
@@ -124,13 +110,37 @@ abstract class BanchanScan : KeiSource() {
     // =============================== Pages ================================
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
-        val document = client.get("$baseUrl${chapter.url}").asJsoup()
+        val document = renderHtml("$baseUrl${chapter.url}")
         return document.select("img[src*='/chapters/']").mapIndexed { index, img ->
             Page(index, imageUrl = img.absUrl("src"))
         }
     }
 
     // ============================== Helpers ===============================
+
+    /**
+     * Charge [url] dans une WebView (qui exécute le JavaScript de rendu), attend
+     * que React ait hydraté la page (le DOM rendu dépasse ~15 Ko), puis renvoie
+     * le DOM complet.
+     */
+    private suspend fun renderHtml(url: String): Document {
+        val html = runWebView<String>(timeout = 30.seconds) {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+
+            onPageFinished { _ ->
+                poll(1000.milliseconds) {
+                    evaluateJs("document.documentElement.outerHTML") { value ->
+                        runCatching { value.parseAs<String>() }.getOrNull()
+                            ?.takeIf { it.length > 15000 }
+                            ?.let { resolve(it) }
+                    }
+                }
+            }
+            loadUrl(url)
+        }
+        return Jsoup.parse(html)
+    }
 
     private fun mangaFromElement(element: Element): SManga = SManga.create().apply {
         setUrlWithoutDomain(element.absUrl("href"))
