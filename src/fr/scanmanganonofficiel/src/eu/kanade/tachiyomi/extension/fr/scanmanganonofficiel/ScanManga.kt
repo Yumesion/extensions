@@ -370,17 +370,7 @@ abstract class ScanManga :
 
     override fun pageListParse(response: Response): List<Page> = parsePageList(response.asJsoup())
 
-    private fun parsePageList(document: org.jsoup.nodes.Document): List<Page> = try {
-        parsePageListInternal(document)
-    } catch (e: Exception) {
-        // En cas de crash (NPE…), on remonte la ligne exacte du code dans le message,
-        // pour diagnostiquer rapidement sans logcat.
-        val frame = e.stackTrace.firstOrNull()
-        val loc = frame?.let { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" } ?: "?"
-        throw Exception("ScanManga $loc — ${e.message}", e)
-    }
-
-    private fun parsePageListInternal(document: org.jsoup.nodes.Document): List<Page> {
+    private fun parsePageList(document: org.jsoup.nodes.Document): List<Page> {
         val packedScript = document.selectFirst(PACKED_SCRIPT_SELECTOR)!!.data()
         val unpackedScript = decodeHunter(packedScript)
 
@@ -428,11 +418,7 @@ abstract class ScanManga :
             body = requestBody.toRequestBody(mediaType),
         )
 
-        // Le POST LEL part vers le sous-domaine `bqj.` (cross-origin). On utilise ici
-        // `readerClient` (sans CloudflareInterceptor) plutôt que `client` : sinon, si `bqj.`
-        // renvoie un challenge, le CloudflareInterceptor de l'app tente un solve WebView qui
-        // plante (NPE) au lieu de laisser notre classificateur d'erreur gérer le cas.
-        val lelResponse = readerClient.newBuilder().cookieJar(CookieJar.NO_COOKIES).build()
+        val lelResponse = client.newBuilder().cookieJar(CookieJar.NO_COOKIES).build()
             .newCall(pageListRequest).execute().use { response ->
                 if (!response.isSuccessful) {
                     val raw = response.body.string()
