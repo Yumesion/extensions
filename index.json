@@ -34,12 +34,12 @@
         "name": "Banchan Scan",
         "packageName": "eu.kanade.tachiyomi.extension.fr.banchanscan",
         "resources": {
-          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.banchanscan-v1.6.7.apk",
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.banchanscan-v1.6.8.apk",
           "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon-banchanscan.png"
         },
         "extensionLib": "1.6",
-        "versionCode": 106007,
-        "versionName": "1.6.7",
+        "versionCode": 106008,
+        "versionName": "1.6.8",
         "contentWarning": "SAFE",
         "sources": [
           {

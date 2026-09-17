@@ -15,6 +15,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import java.io.IOException
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -32,7 +33,15 @@ abstract class BanchanScan : KeiSource() {
 
     override suspend fun getPopularManga(page: Int): MangasPage {
         val document = renderHtml("$baseUrl/oeuvres")
-        return MangasPage(document.select(CARD_SELECTOR).map(::mangaFromElement), hasNextPage = false)
+        val mangas = document.select(CARD_SELECTOR).map(::mangaFromElement)
+        if (mangas.size < 5) {
+            // Diagnostic : rendu partiel, on renvoie le texte rendu pour comprendre.
+            throw IOException(
+                "Catalogue partiel (${mangas.size} œuvre(s) trouvée(s)) — texte rendu: " +
+                    document.text().trim().take(400),
+            )
+        }
+        return MangasPage(mangas, hasNextPage = false)
     }
 
     // ============================== Latest ================================
@@ -128,6 +137,11 @@ abstract class BanchanScan : KeiSource() {
         val html = runWebView<String>(timeout = 45.seconds) {
             javaScriptEnabled = true
             domStorageEnabled = true
+            // Rendu « desktop » : le site sert un layout mobile (1 seule carte) sur
+            // une WebView par défaut. Un UA desktop + viewport large force la grille
+            // complète des œuvres/chapitres.
+            useWideViewPort = true
+            userAgent = DESKTOP_USER_AGENT
 
             onPageFinished { _ ->
                 var lastLength = 0
@@ -187,5 +201,8 @@ abstract class BanchanScan : KeiSource() {
     companion object {
         private const val CARD_SELECTOR = "a[href^=\"/webtoon/\"]"
         private val RELATIVE_DATE_REGEX = Regex("""il y a (\d+)\s+([a-zéû]+)""", RegexOption.IGNORE_CASE)
+        private const val DESKTOP_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     }
 }
