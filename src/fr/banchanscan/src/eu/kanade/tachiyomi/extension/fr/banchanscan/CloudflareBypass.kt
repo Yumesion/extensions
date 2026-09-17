@@ -14,32 +14,25 @@ import kotlin.time.Duration.Companion.seconds
  * une WebView (qui exécute le JS du challenge), puis réessaie la requête OkHttp
  * avec le cookie partagé via CookieManager (AndroidCookieJar).
  *
- * La détection du challenge se fait sur le CORPS de la réponse ET sur le code
- * HTTP 403/429/503, indépendamment l'un de l'autre : Cloudflare peut servir sa
- * page de challenge avec un 200.
- *
- * Important : si le challenge exige une action humaine (case à cocher), la
- * WebView en arrière-plan ne peut pas le résoudre. L'utilisateur doit alors
- * ouvrir le site une fois dans l'app (WebView visible) pour poser le cookie
- * cf_clearance ; l'extension le récupère ensuite automatiquement. C'est
- * pourquoi on revérifie la présence du cookie à CHAQUE tentative, sans drapeau
- * d'échec persistant.
+ * Deux points critiques :
+ * 1. La WebView de résolution doit utiliser le MÊME User-Agent que la requête
+ *    OkHttp : Cloudflare lie le cookie cf_clearance à l'UA (et à l'IP), un UA
+ *    différent invalide le cookie et re-déclenche le challenge.
+ * 2. On ne mémorise AUCUN échec persistant : chaque requête retente la
+ *    résolution, sinon un échec transitoire bloquerait l'extension pour toujours.
  */
 object CloudflareBypass {
 
     private const val CLEARANCE_COOKIE = "cf_clearance"
-    private const val TIMEOUT_SECONDS = 30L
+    private const val TIMEOUT_SECONDS = 60L
     private const val POLL_INTERVAL_MS = 300L
 
     private val CHALLENGE_MARKERS = listOf(
-        "challenge-platform",
-        "__CF\$cv\$params",
         "Just a moment",
         "cf_chl_opt",
         "challenge-form",
         "cf_chl_prog",
         "Checking your browser",
-        "Enable JavaScript",
         "cf-browser-verification",
         "Your request was blocked",
         "cf-mitigated",
@@ -51,7 +44,7 @@ object CloudflareBypass {
         if (!isChallenge(response)) return@Interceptor response
         response.close()
 
-        if (!solve(request.url.toString(), chain.call())) {
+        if (!solve(request.url.toString(), request.header("User-Agent"), chain.call())) {
             throw IOException(
                 "Bypass Cloudflare impossible — ouvre banchanscan.fr une fois dans l'app " +
                     "(WebView) pour passer le challenge, puis réessaie.",
@@ -81,14 +74,14 @@ object CloudflareBypass {
     }
 
     @Synchronized
-    private fun solve(url: String, call: Call): Boolean {
+    private fun solve(url: String, userAgent: String?, call: Call): Boolean {
         val cookieManager = CookieManager.getInstance()
-        // Déjà résolu (ex. challenge passé manuellement dans l'app) → on réessaie directement.
-        if (hasClearance(cookieManager, url)) return true
         return try {
             runWebViewBlocking<Unit>(call, timeout = TIMEOUT_SECONDS.seconds) {
                 javaScriptEnabled = true
                 domStorageEnabled = true
+                // Même UA que la requête OkHttp : sinon le cookie cf_clearance est invalide.
+                if (!userAgent.isNullOrBlank()) this.userAgent = userAgent
 
                 onPageFinished { pageUrl ->
                     poll(POLL_INTERVAL_MS.milliseconds) {
