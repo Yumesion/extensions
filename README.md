@@ -14,7 +14,7 @@ https://raw.githubusercontent.com/Yumesion/extensions/main/index.json
 
 | Extension | Langue | Version | Contenu | Site |
 |---|---|---|---|---|
-| **Banchan Scan** | 🇫🇷 Français | 1.6.10 | SAFE (SFW, section +18 ignorée) | banchanscan.fr |
+| **Banchan Scan** | 🇫🇷 Français | 1.6.11 | SAFE (SFW, section +18 ignorée) | banchanscan.fr |
 | **Black Army** | 🇫🇷 Français | 1.6.1 | SAFE (chapitres VIP masqués) | blackarmy.fr |
 | **Meraki Scans** | 🇫🇷 Français | 1.6.2 | SAFE (SFW uniquement) | merakiscans.net |
 | **ScanManga (non officiel)** | 🇫🇷 Français | 1.4.5 | MIXED | scan-manga.com |

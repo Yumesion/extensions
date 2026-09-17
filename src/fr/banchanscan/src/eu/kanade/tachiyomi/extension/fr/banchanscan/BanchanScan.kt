@@ -7,61 +7,78 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
+import keiyoushi.network.rateLimit
 import keiyoushi.source.KeiSource
 import keiyoushi.utils.parseAs
-import keiyoushi.utils.runWebView
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
-import java.io.IOException
-import java.util.Collections
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
+import okhttp3.OkHttpClient
+import java.text.Normalizer
+import java.time.OffsetDateTime
 
 /**
- * Banchan Scan (banchanscan.fr) — site sous React Server Components (Vinext) :
- * le contenu (catalogue, fiches, chapitres) est rendu CÔTÉ CLIENT par JavaScript.
- * OkHttp (sans JS) ne reçoit donc que la coquille HTML (titre + données RSC
- * sérialisées), sans aucune œuvre. On charge donc chaque page dans une WebView
- * (qui exécute le JS et rend le contenu), puis on extrait le DOM rendu.
+ * Banchan Scan (banchanscan.fr) — catalogue de webtoons/mangas français.
+ *
+ * Le site est rendu par React Server Components (Vinext), mais toutes les données
+ * (œuvres, chapitres, pages) transitent par une API REST propre, un proxy Supabase :
+ *
+ *   GET /api/data/webtoons?select=*&is_adult=eq.false&order=created_at.desc&limit=24&offset=0
+ *   GET /api/data/chapters?webtoon_id=eq.<id>&select=*&order=chapter_number.desc
+ *   GET /api/data/chapter_pages?chapter_id=eq.<id>&select=*&order=sort_order.asc
+ *   GET /api/home-data  → { webtoons, chapters, … } (flux « dernières sorties »)
+ *
+ * On parle donc directement à cette API (JSON) : pas de WebView, pas de parsing HTML,
+ * pas de contournement Cloudflare nécessaire.
  */
 @Source
 abstract class BanchanScan : KeiSource() {
 
-    @Volatile
-    private var lastRscUrls: List<String> = emptyList()
+    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
+        rateLimit(2)
+    }
 
     // ============================== Popular ===============================
 
     override suspend fun getPopularManga(page: Int): MangasPage {
-        val document = renderHtml("$baseUrl/oeuvres")
-        val mangas = document.select(CARD_SELECTOR).map(::mangaFromElement)
-        if (mangas.size < 5) {
-            // Diagnostic : rendu partiel, on renvoie les URL RSC + texte rendu.
-            throw IOException(
-                "Catalogue partiel (${mangas.size} œuvre(s)) — RSC: ${lastRscUrls.joinToString(" | ")} — " +
-                    "texte: ${document.text().trim().take(250)}",
-            )
-        }
-        return MangasPage(mangas, hasNextPage = false)
+        val webtoons = client.get(
+            apiUrl("webtoons")
+                .addQueryParameter("select", LIST_SELECT)
+                .addQueryParameter("is_adult", "eq.false")
+                .addQueryParameter("order", "created_at.desc")
+                .addQueryParameter("limit", PAGE_SIZE.toString())
+                .addQueryParameter("offset", ((page - 1) * PAGE_SIZE).toString())
+                .build(),
+        ).parseAs<List<Webtoon>>()
+        return MangasPage(webtoons.map(::webtoonToManga), hasNextPage = webtoons.size == PAGE_SIZE)
     }
 
     // ============================== Latest ================================
 
-    // Pas de flux « dernières sorties » dédié : on retombe sur le catalogue.
-    override suspend fun getLatestUpdates(page: Int): MangasPage = getPopularManga(page)
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val home = client.get("$baseUrl/api/home-data").parseAs<HomeData>()
+        val byId = home.webtoons.associateBy { it.id }
+        val latest = home.chapters
+            .mapNotNull { byId[it.webtoonId] }
+            .filterNot { it.isAdult }
+            .distinctBy { it.id }
+            .map(::webtoonToManga)
+        return MangasPage(latest, hasNextPage = false)
+    }
 
     // ============================== Search ================================
 
-    // La recherche du site est aussi côté client (filtrage de la liste rendue) :
-    // pas d'endpoint serveur. On récupère le catalogue rendu et on filtre par titre.
+    // L'API n'expose pas de recherche serveur (l'opérateur `ilike` est rejeté par le
+    // proxy). Le catalogue SFW est petit : on le charge et on filtre localement.
     override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
-        val document = renderHtml("$baseUrl/oeuvres")
-        val results = document.select(CARD_SELECTOR)
-            .map(::mangaFromElement)
-            .filter { it.title.contains(query, ignoreCase = true) }
+        if (query.isBlank()) return getPopularManga(page)
+        val webtoons = client.get(
+            apiUrl("webtoons")
+                .addQueryParameter("select", LIST_SELECT)
+                .addQueryParameter("is_adult", "eq.false")
+                .build(),
+        ).parseAs<List<Webtoon>>()
+        val results = webtoons.filter { it.matches(query) }.map(::webtoonToManga)
         return MangasPage(results, hasNextPage = false)
     }
 
@@ -71,7 +88,10 @@ abstract class BanchanScan : KeiSource() {
         val index = segments.indexOf("webtoon")
         if (index == -1 || index + 1 >= segments.size) return null
         val slug = segments[index + 1]
-        return SManga.create().apply { setUrlWithoutDomain("$baseUrl/webtoon/$slug") }
+        val webtoons = client.get(
+            apiUrl("webtoons").addQueryParameter("select", LIST_SELECT).build(),
+        ).parseAs<List<Webtoon>>()
+        return webtoons.firstOrNull { it.title.slugify() == slug }?.let(::webtoonToManga)
     }
 
     // ============================== Details ===============================
@@ -82,147 +102,119 @@ abstract class BanchanScan : KeiSource() {
         fetchDetails: Boolean,
         fetchChapters: Boolean,
     ): SMangaUpdate {
-        val document = renderHtml("$baseUrl${manga.url}")
-        return SMangaUpdate(
-            manga = if (fetchDetails) parseMangaDetails(document, manga) else manga,
-            chapters = if (fetchChapters) parseChapterList(document, manga.url) else chapters,
-        )
-    }
-
-    private fun parseMangaDetails(document: Document, manga: SManga): SManga = SManga.create().apply {
-        url = manga.url
-        title = document.selectFirst("h1")?.text()?.trim() ?: manga.title
-        thumbnail_url = manga.thumbnail_url
-        author = document.select("a[href^='/oeuvres/auteur/']").joinToString(" / ") { it.text().trim() }
-            .ifBlank { null }
-        artist = document.select("a[href^='/oeuvres/artiste/']").joinToString(" / ") { it.text().trim() }
-            .ifBlank { null }
-        genre = document.select("span[class*='text-white/70']").joinToString(", ") { it.text().trim() }
-            .ifBlank { null }
-        description = document.selectFirst("meta[name=description]")?.attr("content")?.trim()
-        status = when (document.selectFirst("span[aria-label='Statut']")?.text()?.trim()?.lowercase()) {
-            "terminé", "complete", "completed" -> SManga.COMPLETED
-            "en cours", "ongoing" -> SManga.ONGOING
-            else -> SManga.UNKNOWN
+        val webtoonId = manga.url
+        val webtoon = if (fetchDetails) {
+            client.get(
+                apiUrl("webtoons")
+                    .addQueryParameter("select", "*")
+                    .addQueryParameter("id", "eq.$webtoonId")
+                    .build(),
+            ).parseAs<List<Webtoon>>().firstOrNull()
+        } else {
+            null
         }
-    }
-
-    private fun parseChapterList(document: Document, mangaUrl: String): List<SChapter> {
-        val mangaSlug = mangaUrl.substringAfterLast("/")
-        return document.select("a[href^='/webtoon/$mangaSlug/']")
-            .map(::chapterFromElement)
-            .distinctBy { it.url }
-    }
-
-    private fun chapterFromElement(element: Element): SChapter = SChapter.create().apply {
-        setUrlWithoutDomain(element.absUrl("href"))
-        name = element.selectFirst("p.text-sm.font-semibold")?.text()?.trim() ?: "Chapitre"
-        date_upload = parseRelativeDate(element.text())
+        val chapterList = if (fetchChapters) {
+            client.get(
+                apiUrl("chapters")
+                    .addQueryParameter("select", "*")
+                    .addQueryParameter("webtoon_id", "eq.$webtoonId")
+                    .build(),
+            ).parseAs<List<Chapter>>()
+                .sortedByDescending { it.chapterNumber.toFloatOrNull() ?: 0f }
+                .map(::chapterToSChapter)
+        } else {
+            chapters
+        }
+        return SMangaUpdate(
+            manga = webtoon?.let(::webtoonToManga) ?: manga,
+            chapters = chapterList,
+        )
     }
 
     // =============================== Pages ================================
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
-        val document = renderHtml("$baseUrl${chapter.url}")
-        return document.select("img[src*='/chapters/']").mapIndexed { index, img ->
-            Page(index, imageUrl = img.absUrl("src"))
-        }
+        val pages = client.get(
+            apiUrl("chapter_pages")
+                .addQueryParameter("select", "*")
+                .addQueryParameter("chapter_id", "eq.${chapter.url}")
+                .build(),
+        ).parseAs<List<ChapterPage>>().sortedBy { it.sortOrder }
+        return pages.mapIndexed { index, page -> Page(index, imageUrl = page.imageUrl) }
     }
 
     // ============================== Helpers ===============================
 
-    /**
-     * Charge [url] dans une WebView (qui exécute le JavaScript de rendu), fait défiler
-     * la page (chargement paresseux éventuel), puis attend que le DOM soit stable (nombre
-     * de liens+images identique sur 2 sondages consécutifs) avant de renvoyer le DOM complet.
-     */
-    private suspend fun renderHtml(url: String): Document {
-        val rscUrls = Collections.synchronizedList(mutableListOf<String>())
-        val html = runWebView<String>(timeout = 45.seconds) {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            // Rendu « desktop » : un UA desktop + viewport large force la grille complète.
-            useWideViewPort = true
-            userAgent = DESKTOP_USER_AGENT
+    override fun getMangaUrl(manga: SManga): String = "$baseUrl/webtoon/${manga.title.slugify()}"
 
-            // Capture les requêtes RSC (`.rsc?_rsc=…`) émises par le client, pour
-            // comprendre le protocole de chargement paresseux (diagnostic).
-            interceptRequest { request ->
-                val u = request.url.toString()
-                if (".rsc" in u || "_rsc" in u) rscUrls.add(u)
-                null
-            }
+    private fun apiUrl(table: String): HttpUrl.Builder = "$baseUrl/api/data/$table".toHttpUrl().newBuilder()
 
-            onPageFinished { _ ->
-                var lastCount = -1
-                var stable = 0
-                var polls = 0
-                poll(1500.milliseconds) {
-                    polls++
-                    evaluateJs(
-                        """
-                        (function() {
-                            window.scrollTo(0, document.body.scrollHeight);
-                            return document.querySelectorAll('a[href], img').length;
-                        })()
-                        """.trimIndent(),
-                    ) { value ->
-                        val count = value.toIntOrNull() ?: 0
-                        if (count == lastCount) {
-                            stable++
-                        } else {
-                            lastCount = count
-                            stable = 0
-                        }
-                        if ((count >= 20 && stable >= 2) || polls >= 8) {
-                            evaluateJs("document.documentElement.outerHTML") { rendered ->
-                                runCatching { rendered.parseAs<String>() }.getOrNull()
-                                    ?.takeIf { it.isNotBlank() }
-                                    ?.let { resolve(it) }
-                            }
-                        }
-                    }
-                }
-            }
-            loadUrl(url)
-        }
-        lastRscUrls = rscUrls.toList()
-        return Jsoup.parse(html)
+    private fun webtoonToManga(webtoon: Webtoon): SManga = SManga.create().apply {
+        url = webtoon.id
+        title = webtoon.title
+        thumbnail_url = webtoon.coverUrl
+        description = webtoon.description
+        author = webtoon.author
+        artist = webtoon.artist
+        genre = webtoon.genres.ifEmpty { webtoon.categories }.joinToString(", ").ifBlank { null }
+        status = webtoon.status.toStatus()
     }
 
-    private fun mangaFromElement(element: Element): SManga = SManga.create().apply {
-        setUrlWithoutDomain(element.absUrl("href"))
-        title = element.selectFirst("h3")?.text()?.trim()
-            ?: element.selectFirst("img")?.attr("alt")?.trim()
-            ?: "Sans titre"
-        thumbnail_url = element.selectFirst("img")?.let { img ->
-            val src = img.attr("src")
-            if (src.isNotBlank() && !src.startsWith("data:")) img.absUrl("src") else null
+    private fun chapterToSChapter(chapter: Chapter): SChapter = SChapter.create().apply {
+        url = chapter.id
+        name = buildString {
+            append("Chapitre ")
+            append(chapter.chapterNumber)
+            chapter.chapterTitle.cleanTitle()?.let { append(" : ").append(it) }
         }
+        chapter_number = chapter.chapterNumber.toFloatOrNull() ?: -1f
+        date_upload = chapter.publishedAt?.let(::parseDate) ?: 0L
+        scanlator = chapter.uploaderName
     }
 
-    // Date relative française vue dans la liste des chapitres (« il y a 14 h »,
-    // « il y a 2 jours », « il y a 1 mois », …) → epoch millis approximatif.
-    private fun parseRelativeDate(text: String): Long {
-        val match = RELATIVE_DATE_REGEX.find(text) ?: return 0L
-        val amount = match.groupValues[1].toIntOrNull() ?: return 0L
-        val unit = match.groupValues[2].lowercase()
-        val millis = when {
-            unit.startsWith("h") -> amount * 3_600_000L
-            unit.startsWith("j") -> amount * 86_400_000L
-            unit.startsWith("sem") -> amount * 604_800_000L
-            unit.startsWith("mois") -> amount * 2_592_000_000L // ~30 jours
-            unit.startsWith("an") -> amount * 31_536_000_000L
-            else -> 0L
-        }
-        return if (millis == 0L) 0L else System.currentTimeMillis() - millis
+    private fun Webtoon.matches(query: String): Boolean {
+        val q = query.trim()
+        if (q.isBlank()) return true
+        val fields = buildList {
+            add(title)
+            add(altTitle)
+            add(author)
+            add(artist)
+            addAll(alternativeTitles)
+        }.filterNotNull()
+        return fields.any { it.contains(q, ignoreCase = true) }
     }
+
+    private fun String?.cleanTitle(): String? = this
+        ?.substringBefore('\u2063') // séparateur invisible ajouté par le site avant des métadonnées
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+
+    private fun String?.toStatus(): Int = when (this?.trim()?.lowercase()) {
+        "terminé" -> SManga.COMPLETED
+        "en cours" -> SManga.ONGOING
+        "licenciée" -> SManga.LICENSED
+        "en pause" -> SManga.ON_HIATUS
+        else -> SManga.UNKNOWN
+    }
+
+    private fun parseDate(text: String): Long = try {
+        OffsetDateTime.parse(text).toInstant().toEpochMilli()
+    } catch (_: Exception) {
+        0L
+    }
+
+    // Slug identique à celui du site (/webtoon/<slug>) : minuscules, accents retirés,
+    // caractères non alphanumériques → tiret, tirets multiples condensés.
+    private fun String.slugify(): String = Normalizer.normalize(this, Normalizer.Form.NFD)
+        .replace(Regex("\\p{M}"), "")
+        .lowercase()
+        .replace(Regex("[^a-z0-9]+"), "-")
+        .trim('-')
 
     companion object {
-        private const val CARD_SELECTOR = "a[href^=\"/webtoon/\"]"
-        private val RELATIVE_DATE_REGEX = Regex("""il y a (\d+)\s+([a-zéû]+)""", RegexOption.IGNORE_CASE)
-        private const val DESKTOP_USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        private const val PAGE_SIZE = 24
+        private const val LIST_SELECT =
+            "id,title,cover_url,description,genres,categories,status,author,artist,alt_title,alternative_titles"
     }
 }
