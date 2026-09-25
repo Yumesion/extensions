@@ -17,7 +17,7 @@ https://raw.githubusercontent.com/Yumesion/extensions/main/index.json
 | **Banchan Scan** | 🇫🇷 Français | 1.6.11 | SAFE (SFW, section +18 ignorée) | banchanscan.fr |
 | **Black Army** | 🇫🇷 Français | 1.6.1 | SAFE (chapitres VIP masqués) | blackarmy.fr |
 | **Meraki Scans** | 🇫🇷 Français | 1.6.2 | SAFE (SFW uniquement) | merakiscans.net |
-| **ScanManga (non officiel)** | 🇫🇷 Français | 1.4.5 | MIXED | scan-manga.com |
+| **ScanManga (non officiel)** | 🇫🇷 Français | 1.4.6 | MIXED | scan-manga.com |
 | **Solaris Scans** | 🇫🇷 Français | 1.6.2 | SAFE (SFW uniquement) | solaris-scans.fr |
 | **Yurei Scan** | 🇫🇷 Français | 1.6.2 | MIXED (SFW + 18+) | yurei-scan.fr |
 

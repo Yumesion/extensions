@@ -193,9 +193,12 @@ abstract class ScanManga :
 
             val chapterName = linkEl.text()
             val extraTitle = titleEl?.text()
+            // Chapitres licenciés (cadenas + lien externe TappyToon) : marqués, pas masqués.
+            val isLocked = element.selectFirst("p.lock-ico") != null
 
             SChapter.create().apply {
-                name = if (!extraTitle.isNullOrEmpty()) "$chapterName - $extraTitle" else chapterName
+                val baseName = if (!extraTitle.isNullOrEmpty()) "$chapterName - $extraTitle" else chapterName
+                name = if (isLocked) "🔒 $baseName" else baseName
                 setUrlWithoutDomain(linkEl.absUrl("href"))
             }
         }
