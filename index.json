@@ -139,6 +139,28 @@
             "message": null
           }
         ]
+      },
+      {
+        "name": "Epsilon Scan (non officiel)",
+        "packageName": "eu.kanade.tachiyomi.extension.fr.epsilonscannonofficiel",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.epsilonscannonofficiel-v1.4.4.apk",
+          "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon-epsilonscannonofficiel.png"
+        },
+        "extensionLib": "1.4",
+        "versionCode": 104004,
+        "versionName": "1.4.4",
+        "contentWarning": "NSFW",
+        "sources": [
+          {
+            "id": 9082096421536480730,
+            "name": "Epsilon Scan (non officiel)",
+            "language": "fr",
+            "homeUrl": "https://epsilonscan.to",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
       }
     ]
   },

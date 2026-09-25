@@ -20,6 +20,7 @@ https://raw.githubusercontent.com/Yumesion/extensions/main/index.json
 | **ScanManga (non officiel)** | 🇫🇷 Français | 1.4.6 | MIXED | scan-manga.com |
 | **Solaris Scans** | 🇫🇷 Français | 1.6.2 | SAFE (SFW uniquement) | solaris-scans.fr |
 | **Yurei Scan** | 🇫🇷 Français | 1.6.2 | MIXED (SFW + 18+) | yurei-scan.fr |
+| **Epsilon Scan (non officiel)** | 🇫🇷 Français | 1.4.4 | NSFW | epsilonscan.to |
 
 ## Notes par extension
 
@@ -29,13 +30,14 @@ https://raw.githubusercontent.com/Yumesion/extensions/main/index.json
 - **ScanManga (non officiel)** : source « non officielle » (le site casse activement les scrapers). Lecteur protégé par anti-bot LEL (fingerprint GPU + tokens) ; lecture validée sur IP française. Peut se dégrader si le site durcit sa protection.
 - **Solaris Scans** : le « Mode 18+ » du site n'est pas activé → contenu classique (SFW) uniquement.
 - **Yurei Scan** : contenu mixte (SFW + 18+ selon les œuvres du site).
+- **Epsilon Scan (non officiel)** : le lecteur est derrière un challenge Cloudflare Turnstile → résolu via WebView (cf_clearance). Contenu NSFW (BL/18+). Peut demander de résoudre le challenge à la main si le challenge est interactif.
 
 ## Structure
 
 - `index.json` — index des extensions (format `NetworkExtensionStore`)
 - `apk/` — APK compilés
 - `icon-*.png` — icônes des extensions
-- `src/fr/<source>/` — code source (Banchan Scan, Black Army, Meraki, Solaris, Yurei en `KeiSource` libVersion 1.6 ; ScanManga en `HttpSource` libVersion 1.4)
+- `src/fr/<source>/` — code source (Banchan Scan, Black Army, Meraki, Solaris, Yurei en `KeiSource` libVersion 1.6 ; ScanManga et Epsilon Scan en `HttpSource` libVersion 1.4)
 
 ## Développement
 
