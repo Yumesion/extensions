@@ -20,7 +20,7 @@ https://raw.githubusercontent.com/Yumesion/extensions/main/index.json
 | **ScanManga (non officiel)** | 🇫🇷 Français | 1.4.6 | MIXED | scan-manga.com |
 | **Solaris Scans** | 🇫🇷 Français | 1.6.2 | SAFE (SFW uniquement) | solaris-scans.fr |
 | **Yurei Scan** | 🇫🇷 Français | 1.6.2 | MIXED (SFW + 18+) | yurei-scan.fr |
-| **Epsilon Scan (non officiel)** | 🇫🇷 Français | 1.4.4 | NSFW | epsilonscan.to |
+| **Epsilon Scan (non officiel)** | 🇫🇷 Français | 1.4.5 | NSFW | epsilonscan.to |
 
 ## Notes par extension
 
