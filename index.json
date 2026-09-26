@@ -139,6 +139,28 @@
             "message": null
           }
         ]
+      },
+      {
+        "name": "Astral-Manga (non officiel)",
+        "packageName": "eu.kanade.tachiyomi.extension.fr.astralmanganonofficiel",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.astralmanganonofficiel-v1.4.1.apk",
+          "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon-astralmanganonofficiel.png"
+        },
+        "extensionLib": "1.4",
+        "versionCode": 104001,
+        "versionName": "1.4.1",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 4112632439165822022,
+            "name": "AstralManga (non officiel)",
+            "language": "fr",
+            "homeUrl": "https://astral-manga.fr",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
       }
     ]
   },
