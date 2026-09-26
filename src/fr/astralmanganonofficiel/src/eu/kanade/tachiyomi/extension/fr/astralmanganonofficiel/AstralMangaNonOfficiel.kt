@@ -133,14 +133,7 @@ abstract class AstralMangaNonOfficiel : HttpSource() {
 
     // ========================== Chapters ==========================
 
-    // Le payload RSC de la fiche est mis en cache (CDN) → les nouveaux chapitres
-    // n'apparaissent qu'à l'expiration du cache. On force un re-fetch frais à chaque fois.
-    override fun chapterListRequest(manga: SManga): Request {
-        val url = (baseUrl + manga.url).toHttpUrl().newBuilder()
-            .addQueryParameter("_", System.currentTimeMillis().toString())
-            .build()
-        return GET(url, headers.newBuilder().add("RSC", "1").build())
-    }
+    override fun chapterListRequest(manga: SManga): Request = mangaDetailsRequest(manga)
 
     override fun chapterListParse(response: Response): List<SChapter> {
         val url = response.request.url
@@ -150,12 +143,9 @@ abstract class AstralMangaNonOfficiel : HttpSource() {
         val chapters = parseChapters(rscBody, mangaUuid)
         if (chapters.isNotEmpty()) return chapters
 
-        // RSC data can be partial on first load; retry with cache-busting
-        val retryUrl = url.newBuilder()
-            .addQueryParameter("_", System.currentTimeMillis().toString())
-            .build()
+        // RSC data can be partial on first load; retry sans le ?_timestamp (qui casse
+        // le RSC) en forçant seulement le rechargement via Cache-Control.
         val retryRequest = response.request.newBuilder()
-            .url(retryUrl)
             .header("Cache-Control", "no-cache")
             .build()
         val retryResponse = client.newCall(retryRequest).execute()
