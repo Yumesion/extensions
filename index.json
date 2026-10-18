@@ -9,6 +9,28 @@
   "extensionList": {
     "extensions": [
       {
+        "name": "Aniverse",
+        "packageName": "eu.kanade.tachiyomi.extension.fr.aniverse",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.aniverse-v1.4.1.apk",
+          "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon-aniverse.png"
+        },
+        "extensionLib": "1.4",
+        "versionCode": 104001,
+        "versionName": "1.4.1",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 4821794959228633650,
+            "name": "Aniverse",
+            "language": "fr",
+            "homeUrl": "https://aniverse.fr",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Black Army",
         "packageName": "eu.kanade.tachiyomi.extension.fr.blackarmy",
         "resources": {
