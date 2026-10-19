@@ -9,6 +9,28 @@
   "extensionList": {
     "extensions": [
       {
+        "name": "Poseidon Scan (non officiel)",
+        "packageName": "eu.kanade.tachiyomi.extension.fr.poseidonscannonofficiel",
+        "resources": {
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.poseidonscannonofficiel-v1.4.1.apk",
+          "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon-poseidonscannonofficiel.png"
+        },
+        "extensionLib": "1.4",
+        "versionCode": 104001,
+        "versionName": "1.4.1",
+        "contentWarning": "SAFE",
+        "sources": [
+          {
+            "id": 3675205966618045621,
+            "name": "Poseidon Scan (non officiel)",
+            "language": "fr",
+            "homeUrl": "https://poseidon-scans.net",
+            "mirrorUrls": [],
+            "message": null
+          }
+        ]
+      },
+      {
         "name": "Aniverse",
         "packageName": "eu.kanade.tachiyomi.extension.fr.aniverse",
         "resources": {
