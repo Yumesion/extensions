@@ -16,7 +16,7 @@ https://raw.githubusercontent.com/Yumesion/extensions/main/index.json
 |---|---|---|---|---|
 | **Astral-Manga (non officiel)** | 🇫🇷 Français | 1.4.2 | SAFE | astral-manga.fr |
 | **Aniverse** | 🇫🇷 Français | 1.4.1 | SAFE | aniverse.fr |
-| **Poseidon Scan (non officiel)** | 🇫🇷 Français | 1.4.1 | SAFE | poseidon-scans.net |
+| **Poseidon Scan (non officiel)** | 🇫🇷 Français | 1.4.2 | SAFE | poseidon-scans.net |
 | **Banchan Scan** | 🇫🇷 Français | 1.6.11 | SAFE (SFW, section +18 ignorée) | banchanscan.fr |
 | **Black Army** | 🇫🇷 Français | 1.6.1 | SAFE (chapitres VIP masqués) | blackarmy.fr |
 | **Meraki Scans** | 🇫🇷 Français | 1.6.2 | SAFE (SFW uniquement) | merakiscans.net |
@@ -28,7 +28,7 @@ https://raw.githubusercontent.com/Yumesion/extensions/main/index.json
 
 - **Astral-Manga (non officiel)** : corrige le retry du payload Next.js RSC (l'officiel utilisait un `?_timestamp` qui casse le RSC → liste vide) en forçant seulement `Cache-Control: no-cache`.
 - **Aniverse** : ancien **Raijin Scan**, site migré vers `aniverse.fr`. Catalogue `/api/manga` (JSON), fiche + chapitres via le RSC Next.js, lecteur via les images `cdn.onefy.me`. Recherche via AniList (GraphQL) avec slugify du titre (certains titres hors catalogue peuvent renvoyer une fiche vide).
-- **Poseidon Scan (non officiel)** : corrige le parsing du **Populaire** cassé par la refonte du site (les mangas sont désormais imbriqués sous `initialData → manga`). Champs `description`/`status` passés en nullable (défensif). Chapitres premium marqués 🔒.
+- **Poseidon Scan (non officiel)** : corrige le parsing du **Populaire** cassé par la refonte du site (les mangas sont désormais imbriqués sous `initialData → manga`). Champs `description`/`status` passés en nullable (défensif). Chapitres premium **masqués par défaut** (l'option « Afficher les chapitres premium » permet de les réafficher avec 🔒).
 - **Banchan Scan** : site sous Cloudflare (blocage des IP datacenter, d'où une analyse via proxy) — l'accès fonctionne depuis une IP résidentielle française. La recherche est côté client (pas d'endpoint serveur) → filtrage local du catalogue. La section `/adult` (18+) est ignorée.
 - **Black Army** : les chapitres « Fast Pass » (VIP) sont masqués. Le site a une recherche texte cassée (titres sans lien) → navigation par le catalogue.
 - **Meraki Scans** : la recherche du site est cassée côté serveur (API `/api/search/` → 500) → navigation par le catalogue uniquement. La section 18+ (`/nsfw/`) est verrouillée derrière un login, donc inaccessible.

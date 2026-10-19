@@ -143,8 +143,7 @@ abstract class PoseidonScansNonOfficiel :
             val isLocked = ch.isPremium == true && mangaPageDto.isPremiumUser != true
 
             if (isLocked && !showPremium) {
-                val premiumUntilDate = ch.premiumUntil?.time ?: 0L
-                if (System.currentTimeMillis() <= premiumUntilDate) return@mapNotNull null
+                return@mapNotNull null
             }
             SChapter.create().apply {
                 val chapterNumberString = ch.number.toString().removeSuffix(".0")
