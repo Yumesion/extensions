@@ -6,7 +6,7 @@ plugins {
 
 keiyoushi {
     name = "Poseidon Scan (non officiel)"
-    versionCode = 2
+    versionCode = 3
     contentWarning = ContentWarning.SAFE
     libVersion = "1.4"
 

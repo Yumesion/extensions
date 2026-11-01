@@ -140,7 +140,9 @@ abstract class PoseidonScansNonOfficiel :
             SHOW_PREMIUM_DEFAULT,
         )
         return mangaPageDto.manga.chapters.mapNotNull { ch ->
-            val isLocked = ch.isPremium == true && mangaPageDto.isPremiumUser != true
+            val isLocked = ch.isPremium == true &&
+                mangaPageDto.isPremiumUser != true &&
+                (ch.premiumUntil?.time ?: 0L) > System.currentTimeMillis()
 
             if (isLocked && !showPremium) {
                 return@mapNotNull null
@@ -197,7 +199,11 @@ abstract class PoseidonScansNonOfficiel :
 
     override fun pageListParse(response: Response): List<Page> {
         val pageDataDto = response.extractNextJs<PageData>() ?: throw Exception("Cant scape data from Next.js")
-        if (pageDataDto.currentChapter.isPremium) {
+        // `isPremium` reste vrai même après l'expiration de la période premium : on ne bloque
+        // que si le chapitre est encore réellement verrouillé (premiumUntil dans le futur).
+        val isStillPremium = pageDataDto.currentChapter.isPremium &&
+            (pageDataDto.currentChapter.premiumUntil?.time ?: 0L) > System.currentTimeMillis()
+        if (isStillPremium) {
             if (pageDataDto.sessionStatus == "unauthenticated") {
                 throw Exception("This chapter is premium. Please connect via the WebView to view.")
             }

@@ -70,6 +70,7 @@ class PageData(
 @Serializable
 class CurrentChapterData(
     val isPremium: Boolean,
+    val premiumUntil: ReactFlightDate? = null,
 )
 
 @Serializable
