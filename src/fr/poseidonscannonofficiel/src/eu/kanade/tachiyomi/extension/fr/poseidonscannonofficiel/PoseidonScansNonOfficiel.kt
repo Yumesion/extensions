@@ -1,40 +1,36 @@
 package eu.kanade.tachiyomi.extension.fr.poseidonscannonofficiel
 
-import android.content.SharedPreferences
-import androidx.preference.CheckBoxPreference
 import androidx.preference.PreferenceScreen
-import eu.kanade.tachiyomi.network.GET
+import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
+import keiyoushi.source.KeiSource
 import keiyoushi.utils.asJsoup
 import keiyoushi.utils.extractNextJs
-import keiyoushi.utils.extractNextJsRsc
-import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferences
 import keiyoushi.utils.parseAs
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.Request
-import okhttp3.Response
 import java.net.URLDecoder
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Source
 abstract class PoseidonScansNonOfficiel :
-    HttpSource(),
+    KeiSource(),
     ConfigurableSource {
 
-    override val supportsLatest = true
+    private val preferences = getPreferences()
 
-    val rscHeaders = headersBuilder().add("RSC", "1").build()
-
-    private val preferences: SharedPreferences by getPreferencesLazy()
+    private val rscHeaders get() = headersBuilder().add("RSC", "1").build()
 
     private fun String.toAbsoluteUrl(): String = if (this.startsWith("http")) this else baseUrl + this
 
@@ -46,15 +42,10 @@ abstract class PoseidonScansNonOfficiel :
         return "$baseUrl/api/covers/$this"
     }
 
-    // found /manga/all too
-
     // =============================== Latest ===============================
 
-    override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/api/manga/lastchapters?limit=16&page=$page", headers)
-
-    override fun latestUpdatesParse(response: Response): MangasPage {
-        val apiResponse = response.parseAs<LatestApiResponse>()
-
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val apiResponse = client.get("$baseUrl/api/manga/lastchapters?limit=16&page=$page").parseAs<LatestApiResponse>()
         val mangas = apiResponse.data.map { apiManga ->
             SManga.create().apply {
                 title = apiManga.title
@@ -62,17 +53,14 @@ abstract class PoseidonScansNonOfficiel :
                 thumbnail_url = apiManga.slug.toApiCoverUrl() + ".webp"
             }
         }
-        val hasNextPage = mangas.size == 16
-        return MangasPage(mangas, hasNextPage)
+        return MangasPage(mangas, hasNextPage = mangas.size == 16)
     }
 
     // ============================== Popular ===============================
 
-    override fun popularMangaRequest(page: Int): Request = GET(baseUrl, rscHeaders)
-
-    override fun popularMangaParse(response: Response): MangasPage {
-        val mangaDtos = response.extractNextJs<List<PopularMangaData>>() ?: throw Exception("Cant scape data from Next.js")
-
+    override suspend fun getPopularManga(page: Int): MangasPage {
+        val mangaDtos = client.get(baseUrl, rscHeaders).extractNextJs<List<PopularMangaData>>()
+            ?: throw Exception("Cant scape data from Next.js")
         val mangas = mangaDtos.map { mangaDto ->
             SManga.create().apply {
                 title = mangaDto.manga.title
@@ -83,70 +71,83 @@ abstract class PoseidonScansNonOfficiel :
         return MangasPage(mangas, false)
     }
 
-    // =========================== Manga Details ============================
+    // =============================== Search ===============================
 
-    override fun mangaDetailsParse(response: Response): SManga {
-        val document = response.asJsoup()
-        val mangaDto = document.extractNextJs<MangaDetailsData>() ?: throw Exception("Cant scape data from Next.js")
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
+        val url = baseUrl.toHttpUrl().newBuilder().apply {
+            addPathSegment("series")
+            if (query.isNotBlank()) addQueryParameter("search", query)
+            if (page > 1) addQueryParameter("page", page.toString())
+        }.build()
+        val document = client.get(url).asJsoup()
+        val mangas = document.select("div.grid a.block.group").map { element ->
+            val url = element.attr("href")
+            val title = element.selectFirst("h2")?.text()!!
 
-        return SManga.create().apply {
-            title = mangaDto.title
-            thumbnail_url = "$baseUrl/api/covers/${mangaDto.slug}.webp"
-            author = mangaDto.author
-            artist = mangaDto.artist
-
-            genre = mangaDto.categories.mapNotNull { it.name.trim().takeIf { name -> name.isNotBlank() } }.joinToString(", ") {
-                it.replaceFirstChar { char -> char.titlecase(Locale.FRENCH) }
+            val thumbnailUrlPath = element.selectFirst("img[alt]")?.attr("srcset")?.substringBefore(" ")?.let {
+                URLDecoder.decode(it, "UTF-8").substringAfter("url=").substringBefore("&")
             }
 
-            status = parseStatus(mangaDto.status)
-
-            description = mangaDto.description?.trim()?.takeIf { it.isNotEmpty() }
-
-            setUrlWithoutDomain("/serie/${mangaDto.slug}")
+            SManga.create().apply {
+                this.setUrlWithoutDomain(url)
+                this.title = title
+                this.thumbnail_url = thumbnailUrlPath?.takeIf { it.isNotBlank() }?.toApiCoverUrl()
+            }
         }
+
+        val hasNextPage = document.select("nav[aria-label=Pagination] a:contains(Suivant)").isNotEmpty()
+        return MangasPage(mangas, hasNextPage)
     }
 
-    private fun parseStatus(statusString: String?): Int = when (statusString?.trim()?.lowercase(Locale.FRENCH)) {
-        "en cours" -> SManga.ONGOING
-        "terminé" -> SManga.COMPLETED
-        "en pause", "hiatus" -> SManga.ON_HIATUS
-        "annulé", "abandonné" -> SManga.CANCELLED
-        else -> SManga.UNKNOWN
-    }
+    // =========================== Details + Chapters ===========================
 
-    // ============================== Chapters ==============================
-
-    override fun chapterListRequest(manga: SManga): Request = GET(baseUrl + manga.url, rscHeaders)
-
-    override fun chapterListParse(response: Response): List<SChapter> {
-        val url = response.request.url
-        val rscBody = response.body.string()
-        val chapters = chapterListRsc(rscBody)
-        if (chapters.isNotEmpty()) return chapters
-
-        // RSC data can be partial on first load; retry with cache-busting
-        val retryUrl = url.newBuilder().addQueryParameter("_", System.currentTimeMillis().toString()).build()
-        val retryRequest = response.request.newBuilder().url(retryUrl).header("Cache-Control", "no-cache").build()
-        val retryResponse = client.newCall(retryRequest).execute()
-        return chapterListRsc(retryResponse.body.string())
-    }
-
-    fun chapterListRsc(rscBody: String): List<SChapter> {
-        val mangaPageDto = rscBody.extractNextJsRsc<MangaPageDetailsData>() ?: throw Exception("Cant scape data from Next.js")
-
-        val showPremium = preferences.getBoolean(
-            SHOW_PREMIUM_KEY,
-            SHOW_PREMIUM_DEFAULT,
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate {
+        val pageDto = fetchMangaPage(manga.url)
+        return SMangaUpdate(
+            manga = if (fetchDetails) pageDto.manga.toSManga() else manga,
+            chapters = if (fetchChapters) pageDto.toChapters() else chapters,
         )
-        return mangaPageDto.manga.chapters.mapNotNull { ch ->
+    }
+
+    private suspend fun fetchMangaPage(url: String): MangaPageDetailsData {
+        // RSC data can be partial on first load; retry with cache-busting
+        val first = client.get(baseUrl + url, rscHeaders).extractNextJs<MangaPageDetailsData>()
+        if (first?.manga?.chapters?.isNotEmpty() == true) return first
+
+        val retryUrl = (baseUrl + url).toHttpUrl().newBuilder()
+            .addQueryParameter("_", System.currentTimeMillis().toString())
+            .build()
+        return client.get(retryUrl, rscHeaders).extractNextJs<MangaPageDetailsData>()
+            ?: throw Exception("Cant scape data from Next.js")
+    }
+
+    private fun MangaDetailsData.toSManga(): SManga = SManga.create().apply {
+        title = this@toSManga.title
+        thumbnail_url = "$baseUrl/api/covers/${this@toSManga.slug}.webp"
+        author = this@toSManga.author
+        artist = this@toSManga.artist
+        genre = this@toSManga.categories.mapNotNull { it.name.trim().takeIf { name -> name.isNotBlank() } }.joinToString(", ") {
+            it.replaceFirstChar { char -> char.titlecase(Locale.FRENCH) }
+        }
+        status = parseStatus(this@toSManga.status)
+        description = this@toSManga.description?.trim()?.takeIf { it.isNotEmpty() }
+        setUrlWithoutDomain("/serie/${this@toSManga.slug}")
+    }
+
+    private fun MangaPageDetailsData.toChapters(): List<SChapter> {
+        val showPremium = preferences.getBoolean(SHOW_PREMIUM_KEY, SHOW_PREMIUM_DEFAULT)
+        return manga.chapters.mapNotNull { ch ->
             val isLocked = ch.isPremium == true &&
-                mangaPageDto.isPremiumUser != true &&
+                isPremiumUser != true &&
                 (ch.premiumUntil?.time ?: 0L) > System.currentTimeMillis()
 
-            if (isLocked && !showPremium) {
-                return@mapNotNull null
-            }
+            if (isLocked && !showPremium) return@mapNotNull null
+
             SChapter.create().apply {
                 val chapterNumberString = ch.number.toString().removeSuffix(".0")
                 val isVolume = ch.isVolume == true || (ch.number % 1 == 0f && ch.title?.contains("volume", ignoreCase = true) == true)
@@ -180,7 +181,7 @@ abstract class PoseidonScansNonOfficiel :
                     }
                 }.trim()
                 setUrlWithoutDomain(
-                    "/serie/${mangaPageDto.manga.slug}/chapter/$chapterNumberString",
+                    "/serie/${manga.slug}/chapter/$chapterNumberString",
                 )
                 date_upload = ch.createdAt.time
                 chapter_number = ch.number
@@ -188,17 +189,19 @@ abstract class PoseidonScansNonOfficiel :
         }.sortedByDescending { it.chapter_number }
     }
 
-    fun formatTimestamp(timestamp: Long): String {
-        val sdf = SimpleDateFormat("dd MMMM HH:mm", Locale.getDefault())
-        return sdf.format(Date(timestamp))
+    private fun parseStatus(statusString: String?): Int = when (statusString?.trim()?.lowercase(Locale.FRENCH)) {
+        "en cours" -> SManga.ONGOING
+        "terminé" -> SManga.COMPLETED
+        "en pause", "hiatus" -> SManga.ON_HIATUS
+        "annulé", "abandonné" -> SManga.CANCELLED
+        else -> SManga.UNKNOWN
     }
 
     // =============================== Pages ================================
 
-    override fun pageListRequest(chapter: SChapter): Request = GET(baseUrl + chapter.url, rscHeaders)
-
-    override fun pageListParse(response: Response): List<Page> {
-        val pageDataDto = response.extractNextJs<PageData>() ?: throw Exception("Cant scape data from Next.js")
+    override suspend fun getPageList(chapter: SChapter): List<Page> {
+        val pageDataDto = client.get(baseUrl + chapter.url, rscHeaders).extractNextJs<PageData>()
+            ?: throw Exception("Cant scape data from Next.js")
         // `isPremium` reste vrai même après l'expiration de la période premium : on ne bloque
         // que si le chapitre est encore réellement verrouillé (premiumUntil dans le futur).
         val isStillPremium = pageDataDto.currentChapter.isPremium &&
@@ -219,65 +222,21 @@ abstract class PoseidonScansNonOfficiel :
         }.sortedBy { it.index }
     }
 
-    override fun imageRequest(page: Page): Request {
-        val refererUrl = page.url
-        val imageHeaders = headersBuilder().set(
-            "Accept",
-            "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        ).set("Referer", refererUrl.ifBlank { "$baseUrl/" }).build()
-        return GET(page.imageUrl!!, imageHeaders)
-    }
-
-    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
-
-    // =============================== Search ===============================
-
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        val url = baseUrl.toHttpUrl().newBuilder().apply {
-            addPathSegment("series")
-            if (query.isNotBlank()) {
-                addQueryParameter("search", query)
-            }
-            if (page > 1) {
-                addQueryParameter("page", page.toString())
-            }
-        }.build()
-
-        return GET(url, headers)
-    }
-
-    override fun searchMangaParse(response: Response): MangasPage {
-        val document = response.asJsoup()
-
-        val mangas = document.select("div.grid a.block.group").map { element ->
-            val url = element.attr("href")
-            val title = element.selectFirst("h2")?.text()!!
-
-            val thumbnailUrlPath = element.selectFirst("img[alt]")?.attr("srcset")?.substringBefore(" ")?.let {
-                URLDecoder.decode(it, "UTF-8").substringAfter("url=").substringBefore("&")
-            }
-
-            SManga.create().apply {
-                this.setUrlWithoutDomain(url)
-                this.title = title
-                this.thumbnail_url = thumbnailUrlPath?.takeIf { it.isNotBlank() }?.toApiCoverUrl()
-            }
-        }
-
-        val hasNextPage = document.select("nav[aria-label=Pagination] a:contains(Suivant)").isNotEmpty()
-
-        return MangasPage(mangas, hasNextPage)
-    }
-
     // ========================== Preference =============================
 
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        CheckBoxPreference(screen.context).apply {
+        SwitchPreferenceCompat(screen.context).apply {
             key = SHOW_PREMIUM_KEY
             title = "Show premium chapters"
             summary = "Show paid chapters (identified by 🔒) in the list."
             setDefaultValue(SHOW_PREMIUM_DEFAULT)
         }.also(screen::addPreference)
+    }
+
+    private fun formatTimestamp(timestamp: Long): String {
+        if (timestamp == 0L) return ""
+        return DateTimeFormatter.ofPattern("dd MMMM HH:mm", Locale.getDefault())
+            .format(Instant.ofEpochMilli(timestamp).atZone(ZoneId.systemDefault()))
     }
 
     companion object {
