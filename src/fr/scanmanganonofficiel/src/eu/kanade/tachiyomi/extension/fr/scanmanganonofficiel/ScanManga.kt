@@ -13,31 +13,32 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.HttpSource
+import eu.kanade.tachiyomi.source.model.SMangaUpdate
 import keiyoushi.annotation.Source
+import keiyoushi.network.get
+import keiyoushi.network.post
+import keiyoushi.source.KeiSource
 import keiyoushi.utils.applicationContext
 import keiyoushi.utils.asJsoup
-import keiyoushi.utils.getPreferencesLazy
+import keiyoushi.utils.getPreferences
 import keiyoushi.utils.parseAs
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import okhttp3.CacheControl
 import okhttp3.CookieJar
-import okhttp3.Headers
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
 import org.jsoup.Jsoup
-import rx.Observable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -45,7 +46,7 @@ import java.util.zip.Inflater
 
 @Source
 abstract class ScanManga :
-    HttpSource(),
+    KeiSource(),
     ConfigurableSource {
 
     private val domain = baseUrl.toHttpUrl().topPrivateDomain() ?: baseUrl.toHttpUrl().host
@@ -56,9 +57,18 @@ abstract class ScanManga :
     // la version desktop `www.` sert le chapitre avec le script LEL sans challenge.
     private val desktopBaseUrl = "https://www.$domain"
 
-    override val supportsLatest = true
+    private val preferences = getPreferences()
 
-    private val preferences by getPreferencesLazy()
+    private val customHeaders get() = headersBuilder()
+        .add("upgrade-insecure-requests", "1")
+        .add(
+            "accept",
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+        )
+        .add("sec-fetch-site", "none")
+        .add("accept-language", "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
+        .add("X-Requested-With", "")
+        .build()
 
     private val stripEmptyXRequestedWith = Interceptor { chain ->
         val request = chain.request()
@@ -70,9 +80,9 @@ abstract class ScanManga :
         }
     }
 
-    override val client = super.client.newBuilder()
-        .addNetworkInterceptor(stripEmptyXRequestedWith)
-        .build()
+    override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
+        addNetworkInterceptor(stripEmptyXRequestedWith)
+    }
 
     // Reader-page fetches reuse the app client (cache, gzip, DoH, cookie jar, etc.) but strip
     // the host's CloudflareInterceptor — that interceptor wastes ~30 s per call trying its own
@@ -83,74 +93,46 @@ abstract class ScanManga :
             .build()
     }
 
-    override fun headersBuilder(): Headers.Builder = super.headersBuilder()
-        .add("upgrade-insecure-requests", "1")
-        .add(
-            "accept",
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-        )
-        .add("sec-fetch-site", "none")
-        .add("accept-language", "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
-        .add("X-Requested-With", "")
-
     // Popular
-    override fun popularMangaRequest(page: Int): Request = GET("$baseUrl/TOP-Manga-Webtoon-45.html", headers)
-
-    override fun popularMangaParse(response: Response): MangasPage {
-        val mangas = response.asJsoup().select("#carouselTOPContainer div.top").map { element ->
-            SManga.create().apply {
-                val titleElement = element.selectFirst("a.atop")!!
-
-                title = titleElement.text()
-                setUrlWithoutDomain(titleElement.attr("href"))
-                thumbnail_url = element.selectFirst("img")?.attr("data-original")
+    override suspend fun getPopularManga(page: Int): MangasPage {
+        val mangas = client.get("$baseUrl/TOP-Manga-Webtoon-45.html", customHeaders).asJsoup()
+            .select("#carouselTOPContainer div.top").map { element ->
+                SManga.create().apply {
+                    val titleElement = element.selectFirst("a.atop")!!
+                    title = titleElement.text()
+                    setUrlWithoutDomain(titleElement.attr("href"))
+                    thumbnail_url = element.selectFirst("img")?.attr("data-original")
+                }
             }
-        }
-
         return MangasPage(mangas, false)
     }
 
     // Latest
-    override fun latestUpdatesRequest(page: Int): Request = GET(baseUrl, headers)
-
-    override fun latestUpdatesParse(response: Response): MangasPage {
-        val document = response.asJsoup()
-
+    override suspend fun getLatestUpdates(page: Int): MangasPage {
+        val document = client.get(baseUrl, customHeaders).asJsoup()
         val mangas = document.select("#content_news .publi").map { element ->
             SManga.create().apply {
                 val mangaElement = element.selectFirst("a.l_manga")!!
-
                 title = mangaElement.text()
                 setUrlWithoutDomain(mangaElement.attr("href"))
-
                 thumbnail_url = element.selectFirst("img")?.attr("src")
             }
         }
-
         return MangasPage(mangas, false)
     }
 
     // Search
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        val url = baseSearchUrl
-            .toHttpUrl().newBuilder()
+    override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
+        val url = baseSearchUrl.toHttpUrl().newBuilder()
             .addQueryParameter("term", query)
             .build()
-            .toString()
-
-        val newHeaders = headers.newBuilder()
+        val newHeaders = customHeaders.newBuilder()
             .add("Content-type", "application/json; charset=UTF-8")
             .build()
-
-        return GET(url, newHeaders)
-    }
-
-    override fun searchMangaParse(response: Response): MangasPage {
-        val json = response.body.string()
+        val json = client.get(url, newHeaders).use { it.body.string() }
         if (json == "[]") {
             return MangasPage(emptyList(), false)
         }
-
         return MangasPage(
             json.parseAs<MangaSearchDto>().title?.map {
                 SManga.create().apply {
@@ -163,48 +145,171 @@ abstract class ScanManga :
         )
     }
 
-    // Details
-    override fun mangaDetailsParse(response: Response): SManga {
-        val document = response.asJsoup()
+    // Details + Chapters
+    override suspend fun fetchMangaUpdate(
+        manga: SManga,
+        chapters: List<SChapter>,
+        fetchDetails: Boolean,
+        fetchChapters: Boolean,
+    ): SMangaUpdate {
+        val document = client.get(baseUrl + manga.url, customHeaders).asJsoup()
 
-        return SManga.create().apply {
-            title = document.select("h1.main_title[itemprop=name]").text()
-            author = document.select("div[itemprop=author]").text()
-            description = document.selectFirst("div.titres_desc[itemprop=description]")?.text()
-            genre = document.selectFirst("div.titres_souspart span[itemprop=genre]")?.text()
+        val updatedManga = if (fetchDetails) {
+            SManga.create().apply {
+                title = document.select("h1.main_title[itemprop=name]").text()
+                author = document.select("div[itemprop=author]").text()
+                description = document.selectFirst("div.titres_desc[itemprop=description]")?.text()
+                genre = document.selectFirst("div.titres_souspart span[itemprop=genre]")?.text()
 
-            val statutText = document.selectFirst("div.titres_souspart")?.ownText()
-            status = when {
-                statutText?.contains("En cours", ignoreCase = true) == true -> SManga.ONGOING
-                statutText?.contains("Terminé", ignoreCase = true) == true -> SManga.COMPLETED
-                else -> SManga.UNKNOWN
+                val statutText = document.selectFirst("div.titres_souspart")?.ownText()
+                status = when {
+                    statutText?.contains("En cours", ignoreCase = true) == true -> SManga.ONGOING
+                    statutText?.contains("Terminé", ignoreCase = true) == true -> SManga.COMPLETED
+                    else -> SManga.UNKNOWN
+                }
+
+                thumbnail_url = document.select("div.full_img_serie img[itemprop=image]").attr("src")
             }
-
-            thumbnail_url = document.select("div.full_img_serie img[itemprop=image]").attr("src")
+        } else {
+            manga
         }
-    }
 
-    // Chapters
-    override fun chapterListParse(response: Response): List<SChapter> {
-        val document = response.asJsoup()
-        return document.select("div.chapt_m").map { element ->
-            val linkEl = element.selectFirst("td.publimg span.i a")!!
-            val titleEl = element.selectFirst("td.publititle")
+        val updatedChapters = if (fetchChapters) {
+            document.select("div.chapt_m").map { element ->
+                val linkEl = element.selectFirst("td.publimg span.i a")!!
+                val titleEl = element.selectFirst("td.publititle")
 
-            val chapterName = linkEl.text()
-            val extraTitle = titleEl?.text()
-            // Chapitres licenciés (cadenas + lien externe TappyToon) : marqués, pas masqués.
-            val isLocked = element.selectFirst("p.lock-ico") != null
+                val chapterName = linkEl.text()
+                val extraTitle = titleEl?.text()
+                // Chapitres licenciés (cadenas + lien externe TappyToon) : marqués, pas masqués.
+                val isLocked = element.selectFirst("p.lock-ico") != null
 
-            SChapter.create().apply {
-                val baseName = if (!extraTitle.isNullOrEmpty()) "$chapterName - $extraTitle" else chapterName
-                name = if (isLocked) "🔒 $baseName" else baseName
-                setUrlWithoutDomain(linkEl.absUrl("href"))
+                SChapter.create().apply {
+                    val baseName = if (!extraTitle.isNullOrEmpty()) "$chapterName - $extraTitle" else chapterName
+                    name = if (isLocked) "🔒 $baseName" else baseName
+                    setUrlWithoutDomain(linkEl.absUrl("href"))
+                }
             }
+        } else {
+            chapters
         }
+
+        return SMangaUpdate(updatedManga, updatedChapters)
     }
 
     // Pages
+    override suspend fun getPageList(chapter: SChapter): List<Page> {
+        val chapterUrl = "$desktopBaseUrl${chapter.url}"
+
+        val body = fetchChapterBody(chapterUrl)
+            ?: throw Exception("Résolvez le challenge Cloudflare, fermez la WebView et réouvrez le chapitre.")
+
+        return parsePageList(Jsoup.parse(body, chapterUrl))
+    }
+
+    private suspend fun fetchChapterBody(chapterUrl: String): String? {
+        val isReader = Exception().stackTrace.any { it.className.contains("reader") }
+
+        suspend fun fetch(): String? = try {
+            readerClient.get(chapterUrl, customHeaders, cacheControl = CacheControl.FORCE_NETWORK, ensureSuccess = false)
+                .use { resp -> resp.body.string().takeIf { CHAPTER_INFO_REGEX.containsMatchIn(it) } }
+        } catch (_: Exception) {
+            null
+        }
+
+        var body = fetch()
+        if (body == null) {
+            // Cold-session path: CF refuses to issue cf_clearance to a session that's
+            // never touched the host. Warm up by loading the homepage in a hidden WV,
+            // then re-probe — usually clears it without ever needing WebViewActivity.
+            warmupWebViewSession()
+            body = fetch()
+        }
+        if (body == null) {
+            try {
+                val intent = Intent().apply {
+                    component = ComponentName(applicationContext, "eu.kanade.tachiyomi.ui.webview.WebViewActivity")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    putExtra("url_key", chapterUrl)
+                    putExtra("source_key", id)
+                    putExtra("title_key", "Résolvez le challenge Cloudflare, fermez la WebView et réouvrez le chapitre.")
+                }
+                applicationContext.startActivity(intent)
+            } catch (_: Exception) {
+                throw Exception("Résolvez le challenge Cloudflare depuis la WebView puis réouvrez le chapitre.")
+            }
+
+            for (attempt in 1..CF_MAX_POLLS) {
+                delay(CF_POLL_INTERVAL_MS)
+                body = fetch()
+                if (body != null) {
+                    val closeIntent = Intent().apply {
+                        val target = if (isReader) {
+                            "eu.kanade.tachiyomi.ui.reader.ReaderActivity"
+                        } else {
+                            "eu.kanade.tachiyomi.ui.main.MainActivity"
+                        }
+                        component = ComponentName(applicationContext, target)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    }
+                    applicationContext.startActivity(closeIntent)
+                    break
+                }
+            }
+            if (body == null) {
+                // WV flow exhausted itself; the warmup we did wasn't enough either.
+                // Clear the gate so the next attempt warms again from scratch.
+                sessionWarmedUp.set(false)
+                return null
+            }
+        }
+        return body
+    }
+
+    private val sessionWarmedUp = AtomicBoolean(false)
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private suspend fun warmupWebViewSession() {
+        if (!sessionWarmedUp.compareAndSet(false, true)) return
+
+        val latch = CountDownLatch(1)
+        val mainHandler = Handler(Looper.getMainLooper())
+
+        mainHandler.post {
+            val wv = WebView(applicationContext)
+            wv.settings.javaScriptEnabled = true
+            wv.settings.domStorageEnabled = true
+
+            val cm = android.webkit.CookieManager.getInstance()
+            cm.setAcceptCookie(true)
+            cm.setAcceptThirdPartyCookies(wv, true)
+
+            wv.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    // Schedule teardown on the main looper directly — view.postDelayed
+                    // is silently dropped because the WebView isn't attached to a window.
+                    // The settle window lets CF's Turnstile beacon commit cf_clearance.
+                    mainHandler.postDelayed({
+                        runCatching {
+                            view?.stopLoading()
+                            view?.destroy()
+                        }
+                        latch.countDown()
+                    }, WARMUP_SETTLE_MS)
+                }
+            }
+            wv.loadUrl("$baseUrl/")
+        }
+
+        try {
+            if (!latch.await(WARMUP_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                sessionWarmedUp.set(false)
+            }
+        } catch (_: InterruptedException) {
+            sessionWarmedUp.set(false)
+        }
+    }
+
     private fun decodeHunter(obfuscatedJs: String): String {
         val (encoded, mask, intervalStr, optionStr) = HUNTER_OBFUSCATION_REGEX.find(obfuscatedJs)?.destructured
             ?: error("Failed to match obfuscation pattern")
@@ -264,116 +369,7 @@ abstract class ScanManga :
         return finalJsonStr.parseAs<UrlPayload>()
     }
 
-    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {
-        val context = applicationContext
-        val chapterUrl = "$desktopBaseUrl${chapter.url}"
-        val isReader = Exception().stackTrace.any { it.className.contains("reader") }
-
-        fun fetch(): String? = try {
-            readerClient.newCall(GET(chapterUrl, headers)).execute().use { resp ->
-                resp.body.string().takeIf { CHAPTER_INFO_REGEX.containsMatchIn(it) }
-            }
-        } catch (_: Exception) {
-            null
-        }
-
-        var body = fetch()
-        if (body == null) {
-            // Cold-session path: CF refuses to issue cf_clearance to a session that's
-            // never touched the host. Warm up by loading the homepage in a hidden WV,
-            // then re-probe — usually clears it without ever needing WebViewActivity.
-            warmupWebViewSession()
-            body = fetch()
-        }
-        if (body == null) {
-            try {
-                val intent = Intent().apply {
-                    component = ComponentName(context, "eu.kanade.tachiyomi.ui.webview.WebViewActivity")
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    putExtra("url_key", chapterUrl)
-                    putExtra("source_key", id)
-                    putExtra("title_key", "Résolvez le challenge Cloudflare, fermez la WebView et réouvrez le chapitre.")
-                }
-                context.startActivity(intent)
-            } catch (_: Exception) {
-                throw Exception("Résolvez le challenge Cloudflare depuis la WebView puis réouvrez le chapitre.")
-            }
-
-            for (attempt in 1..CF_MAX_POLLS) {
-                Thread.sleep(CF_POLL_INTERVAL_MS)
-                body = fetch()
-                if (body != null) {
-                    val closeIntent = Intent().apply {
-                        val target = if (isReader) {
-                            "eu.kanade.tachiyomi.ui.reader.ReaderActivity"
-                        } else {
-                            "eu.kanade.tachiyomi.ui.main.MainActivity"
-                        }
-                        component = ComponentName(context, target)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                    }
-                    context.startActivity(closeIntent)
-                    break
-                }
-            }
-            if (body == null) {
-                // WV flow exhausted itself; the warmup we did wasn't enough either.
-                // Clear the gate so the next attempt warms again from scratch.
-                sessionWarmedUp.set(false)
-                throw Exception("Résolvez le challenge Cloudflare, fermez la WebView et réouvrez le chapitre.")
-            }
-        }
-
-        return Observable.just(parsePageList(Jsoup.parse(body, chapterUrl)))
-    }
-
-    private val sessionWarmedUp = AtomicBoolean(false)
-
-    @SuppressLint("SetJavaScriptEnabled")
-    private fun warmupWebViewSession() {
-        if (!sessionWarmedUp.compareAndSet(false, true)) return
-
-        val latch = CountDownLatch(1)
-        val mainHandler = Handler(Looper.getMainLooper())
-
-        mainHandler.post {
-            val wv = WebView(applicationContext)
-            wv.settings.javaScriptEnabled = true
-            wv.settings.domStorageEnabled = true
-
-            val cm = android.webkit.CookieManager.getInstance()
-            cm.setAcceptCookie(true)
-            cm.setAcceptThirdPartyCookies(wv, true)
-
-            wv.webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView?, url: String?) {
-                    // Schedule teardown on the main looper directly — view.postDelayed
-                    // is silently dropped because the WebView isn't attached to a window.
-                    // The settle window lets CF's Turnstile beacon commit cf_clearance.
-                    mainHandler.postDelayed({
-                        runCatching {
-                            view?.stopLoading()
-                            view?.destroy()
-                        }
-                        latch.countDown()
-                    }, WARMUP_SETTLE_MS)
-                }
-            }
-            wv.loadUrl("$baseUrl/")
-        }
-
-        try {
-            if (!latch.await(WARMUP_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                sessionWarmedUp.set(false)
-            }
-        } catch (_: InterruptedException) {
-            sessionWarmedUp.set(false)
-        }
-    }
-
-    override fun pageListParse(response: Response): List<Page> = parsePageList(response.asJsoup())
-
-    private fun parsePageList(document: org.jsoup.nodes.Document): List<Page> {
+    private suspend fun parsePageList(document: org.jsoup.nodes.Document): List<Page> {
         val packedScript = document.selectFirst(PACKED_SCRIPT_SELECTOR)!!.data()
         val unpackedScript = decodeHunter(packedScript)
 
@@ -403,7 +399,7 @@ abstract class ScanManga :
         // Headers « fetch() » côté navigateur (cross-origin www -> bqj), pas les headers de
         // navigation du site (sec-fetch-site: none, accept text/html…) qui trahissent un scraper.
         val origin = "${documentUrl.scheme}://${documentUrl.host}"
-        val requestHeaders = super.headersBuilder()
+        val requestHeaders = headersBuilder()
             .add("Origin", origin)
             .add("Referer", "$origin/")
             .add("source", documentUrl.toString())
@@ -415,14 +411,9 @@ abstract class ScanManga :
             .add("accept-language", "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
             .build()
 
-        val pageListRequest = POST(
-            url = pageListUrl,
-            headers = requestHeaders,
-            body = requestBody.toRequestBody(mediaType),
-        )
-
         val lelResponse = client.newBuilder().cookieJar(CookieJar.NO_COOKIES).build()
-            .newCall(pageListRequest).execute().use { response ->
+            .post(pageListUrl, requestHeaders, requestBody.toRequestBody(mediaType), ensureSuccess = false)
+            .use { response ->
                 if (!response.isSuccessful) {
                     val raw = response.body.string()
                     val kind = when {
@@ -440,66 +431,56 @@ abstract class ScanManga :
         return lelResponse.generateImageUrls().map { Page(it.first, imageUrl = it.second) }
     }
 
-    // Page
-    override fun imageUrlParse(response: Response): String = throw UnsupportedOperationException()
-
-    override fun imageRequest(page: Page): Request {
-        val imgHeaders = headers.newBuilder()
-            .add("Origin", baseUrl)
-            .build()
-
-        return GET(page.imageUrl!!, imgHeaders)
-    }
-
     @SuppressLint("SetJavaScriptEnabled")
-    private fun getFingerprint(): String {
+    private suspend fun getFingerprint(): String {
         var currentValue = preferences.getString("gpu_renderer", null)
 
         if (currentValue.isNullOrEmpty()) {
-            val latch = CountDownLatch(1)
-            var returnValue = "SUMK"
+            currentValue = withContext(Dispatchers.IO) {
+                val latch = CountDownLatch(1)
+                var returnValue = "SUMK"
 
-            Handler(Looper.getMainLooper()).post {
-                val webView = WebView(applicationContext)
-                webView.settings.javaScriptEnabled = true
+                Handler(Looper.getMainLooper()).post {
+                    val webView = WebView(applicationContext)
+                    webView.settings.javaScriptEnabled = true
 
-                webView.webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        val script = """
-                        (function() {
-                            try {
-                                const canvas = document.createElement("canvas");
-                                const gl = canvas.getContext("webgl");
-                                const debugInfo = gl ? gl.getExtension("WEBGL_debug_renderer_info") : null;
-                                const gpu = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : "IC";
+                    webView.webViewClient = object : WebViewClient() {
+                        override fun onPageFinished(view: WebView?, url: String?) {
+                            val script = """
+                            (function() {
+                                try {
+                                    const canvas = document.createElement("canvas");
+                                    const gl = canvas.getContext("webgl");
+                                    const debugInfo = gl ? gl.getExtension("WEBGL_debug_renderer_info") : null;
+                                    const gpu = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : "IC";
 
-                                return btoa(gpu);
-                            } catch (e) {
-                                return btoa("IC");
+                                    return btoa(gpu);
+                                } catch (e) {
+                                    return btoa("IC");
+                                }
+                            })();
+                            """.trimIndent()
+
+                            view?.evaluateJavascript(script) {
+                                returnValue = it?.removeSurrounding("\"") ?: "SUMK"
+                                view.stopLoading()
+                                view.destroy()
+                                latch.countDown()
                             }
-                        })();
-                        """.trimIndent()
-
-                        view?.evaluateJavascript(script) {
-                            returnValue = it?.removeSurrounding("\"") ?: "SUMK"
-                            view.stopLoading()
-                            view.destroy()
-                            latch.countDown()
                         }
                     }
+                    webView.loadUrl("about:blank")
                 }
-                webView.loadUrl("about:blank")
+
+                try {
+                    latch.await(5, TimeUnit.SECONDS)
+                } catch (_: InterruptedException) {
+                }
+
+                String(Base64.decode(returnValue, Base64.DEFAULT))
             }
 
-            try {
-                latch.await(5, TimeUnit.SECONDS)
-            } catch (_: InterruptedException) {
-            }
-
-            val decodedValue = String(Base64.decode(returnValue, Base64.DEFAULT))
-
-            preferences.edit().putString("gpu_renderer", decodedValue).apply()
-            currentValue = decodedValue
+            preferences.edit().putString("gpu_renderer", currentValue).apply()
         }
 
         return Base64.encodeToString(

@@ -34,12 +34,12 @@
         "name": "Aniverse",
         "packageName": "eu.kanade.tachiyomi.extension.fr.aniverse",
         "resources": {
-          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.aniverse-v1.4.1.apk",
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.aniverse-v1.6.1.apk",
           "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon-aniverse.png"
         },
-        "extensionLib": "1.4",
-        "versionCode": 104001,
-        "versionName": "1.4.1",
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
         "contentWarning": "SAFE",
         "sources": [
           {
@@ -122,12 +122,12 @@
         "name": "ScanManga (non officiel)",
         "packageName": "eu.kanade.tachiyomi.extension.fr.scanmanganonofficiel",
         "resources": {
-          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.scanmanganonofficiel-v1.4.6.apk",
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.scanmanganonofficiel-v1.6.1.apk",
           "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon-scanmanganonofficiel.png"
         },
-        "extensionLib": "1.4",
-        "versionCode": 104006,
-        "versionName": "1.4.6",
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
         "contentWarning": "MIXED",
         "sources": [
           {
@@ -188,12 +188,12 @@
         "name": "Astral-Manga (non officiel)",
         "packageName": "eu.kanade.tachiyomi.extension.fr.astralmanganonofficiel",
         "resources": {
-          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.astralmanganonofficiel-v1.4.2.apk",
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.astralmanganonofficiel-v1.6.1.apk",
           "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon-astralmanganonofficiel.png"
         },
-        "extensionLib": "1.4",
-        "versionCode": 104002,
-        "versionName": "1.4.2",
+        "extensionLib": "1.6",
+        "versionCode": 106001,
+        "versionName": "1.6.1",
         "contentWarning": "SAFE",
         "sources": [
           {
