@@ -97,27 +97,25 @@ abstract class ScanManga :
 
     // Popular
     override suspend fun getPopularManga(page: Int): MangasPage {
-        val mangas = client.get("$baseUrl/TOP-Manga-Webtoon-45.html", customHeaders).asJsoup()
-            .select("#carouselTOPContainer div.top").map { element ->
-                SManga.create().apply {
-                    val titleElement = element.selectFirst("a.atop")!!
-                    title = titleElement.text()
-                    setUrlWithoutDomain(titleElement.attr("href"))
-                    thumbnail_url = element.selectFirst("img")?.attr("data-original")
-                }
+        val document = client.get(baseUrl, customHeaders).asJsoup()
+        val mangas = document.select("a.right_manga_top").map { element ->
+            SManga.create().apply {
+                title = element.text()
+                setUrlWithoutDomain(element.attr("href"))
             }
+        }
         return MangasPage(mangas, false)
     }
 
     // Latest
     override suspend fun getLatestUpdates(page: Int): MangasPage {
         val document = client.get(baseUrl, customHeaders).asJsoup()
-        val mangas = document.select("#content_news .publi").map { element ->
+        val mangas = document.select("#content_news .listing").mapNotNull { element ->
+            val mangaElement = element.selectFirst("a.nom_manga") ?: return@mapNotNull null
             SManga.create().apply {
-                val mangaElement = element.selectFirst("a.l_manga")!!
                 title = mangaElement.text()
                 setUrlWithoutDomain(mangaElement.attr("href"))
-                thumbnail_url = element.selectFirst("img")?.attr("src")
+                thumbnail_url = element.selectFirst("div.logo_manga img")?.attr("src")
             }
         }
         return MangasPage(mangas, false)
@@ -125,26 +123,23 @@ abstract class ScanManga :
 
     // Search
     override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
-        val url = baseSearchUrl.toHttpUrl().newBuilder()
-            .addQueryParameter("term", query)
+        val url = "$desktopBaseUrl/scanlation/liste_series.html".toHttpUrl().newBuilder()
+            .addQueryParameter("q", query)
             .build()
-        val newHeaders = customHeaders.newBuilder()
-            .add("Content-type", "application/json; charset=UTF-8")
-            .build()
-        val json = client.get(url, newHeaders).use { it.body.string() }
-        if (json == "[]") {
-            return MangasPage(emptyList(), false)
-        }
-        return MangasPage(
-            json.parseAs<MangaSearchDto>().title?.map {
-                SManga.create().apply {
-                    title = it.nom_match
-                    setUrlWithoutDomain(it.url)
-                    thumbnail_url = "$baseImageUrl/${it.image}"
-                }
-            } ?: emptyList(),
-            false,
-        )
+        val document = client.get(url, customHeaders).asJsoup()
+        val mangas = document.select("a[href*='scan-manga.com'][href\$='.html']").mapNotNull { element ->
+            val href = element.attr("href")
+            val title = element.text().trim()
+            if (title.isBlank()) return@mapNotNull null
+            // ne garder que les liens de manga (/ID/Slug.html), pas les chapitres/teams/pages
+            val path = href.substringAfter("scan-manga.com", "")
+            if (!path.matches(Regex("/\\d.*\\.html"))) return@mapNotNull null
+            SManga.create().apply {
+                this.title = title
+                setUrlWithoutDomain(href)
+            }
+        }.distinctBy { it.url }
+        return MangasPage(mangas, false)
     }
 
     // Details + Chapters
