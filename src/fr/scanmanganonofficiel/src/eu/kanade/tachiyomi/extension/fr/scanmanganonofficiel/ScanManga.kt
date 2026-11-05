@@ -82,8 +82,21 @@ abstract class ScanManga :
         }
     }
 
+    // Le site sert la version MOBILE quand le User-Agent est mobile (comme celui de l'app) :
+    // le sous-domaine `m.` a perdu son carrousel populaire et sa recherche, et `www.` redirige
+    // vers `m.` pour un UA mobile. On force donc un UA desktop sur toutes les requêtes HTTP
+    // (browse, fiche, lecteur, LEL) pour rester sur la version desktop, seule complète.
+    private val desktopUserAgentInterceptor = Interceptor { chain ->
+        chain.proceed(
+            chain.request().newBuilder()
+                .header("User-Agent", DESKTOP_USER_AGENT)
+                .build(),
+        )
+    }
+
     override fun OkHttpClient.Builder.configureClient(): OkHttpClient.Builder = apply {
         addNetworkInterceptor(stripEmptyXRequestedWith)
+        addNetworkInterceptor(desktopUserAgentInterceptor)
     }
 
     // Reader-page fetches reuse the app client (cache, gzip, DoH, cookie jar, etc.) but strip
@@ -538,6 +551,7 @@ abstract class ScanManga :
         private const val PAGE_LIST_URL = "https://bqj.{topDomain}/lel/{chapterId}.json"
         private const val REQUEST_BODY = """{"a":"{sme}","b":"{sml}","c":"{fingerprint}"}"""
         private const val LEL_TOKEN = "yf"
+        private const val DESKTOP_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         private const val CF_POLL_INTERVAL_MS = 5000L
         private const val CF_MAX_POLLS = 15
         private const val WARMUP_SETTLE_MS = 200L
