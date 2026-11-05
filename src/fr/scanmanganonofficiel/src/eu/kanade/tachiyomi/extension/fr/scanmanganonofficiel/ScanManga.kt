@@ -166,38 +166,31 @@ abstract class ScanManga :
 
         val updatedManga = if (fetchDetails) {
             SManga.create().apply {
-                title = document.select("h1.main_title[itemprop=name]").text()
-                author = document.select("div[itemprop=author]").text()
-                description = document.selectFirst("div.titres_desc[itemprop=description]")?.text()
-                genre = document.selectFirst("div.titres_souspart span[itemprop=genre]")?.text()
+                title = document.selectFirst("h2[itemprop*=name]")?.text() ?: manga.title
+                author = document.selectFirst("li[itemprop=author]")?.text()
+                description = document.selectFirst("p[itemprop=description]")?.text()
+                genre = document.selectFirst("li[itemprop=genre]")?.text()
 
-                val statutText = document.selectFirst("div.titres_souspart")?.ownText()
+                val statusText = document.selectFirst("div.titre_volume_manga")?.text()
                 status = when {
-                    statutText?.contains("En cours", ignoreCase = true) == true -> SManga.ONGOING
-                    statutText?.contains("Terminé", ignoreCase = true) == true -> SManga.COMPLETED
+                    statusText?.contains("En cours", ignoreCase = true) == true -> SManga.ONGOING
+                    statusText?.contains("Terminé", ignoreCase = true) == true -> SManga.COMPLETED
                     else -> SManga.UNKNOWN
                 }
 
-                thumbnail_url = document.select("div.full_img_serie img[itemprop=image]").attr("src")
+                thumbnail_url = document.selectFirst("meta[property='og:image']")?.attr("content")
             }
         } else {
             manga
         }
 
         val updatedChapters = if (fetchChapters) {
-            document.select("div.chapt_m").map { element ->
-                val linkEl = element.selectFirst("td.publimg span.i a")!!
-                val titleEl = element.selectFirst("td.publititle")
-
-                val chapterName = linkEl.text()
-                val extraTitle = titleEl?.text()
-                // Chapitres licenciés (cadenas + lien externe TappyToon) : marqués, pas masqués.
-                val isLocked = element.selectFirst("p.lock-ico") != null
-
+            document.select("li.chapitre").map { element ->
+                val linkEl = element.selectFirst("div.chapitre_nom a")
+                val chapterName = linkEl?.text().orEmpty()
                 SChapter.create().apply {
-                    val baseName = if (!extraTitle.isNullOrEmpty()) "$chapterName - $extraTitle" else chapterName
-                    name = if (isLocked) "🔒 $baseName" else baseName
-                    setUrlWithoutDomain(linkEl.absUrl("href"))
+                    name = chapterName
+                    setUrlWithoutDomain(linkEl?.absUrl("href").orEmpty())
                 }
             }
         } else {
