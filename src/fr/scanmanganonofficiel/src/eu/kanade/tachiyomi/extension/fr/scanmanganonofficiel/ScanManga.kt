@@ -60,6 +60,8 @@ abstract class ScanManga :
     private val preferences = getPreferences()
 
     private val customHeaders get() = headersBuilder()
+        .removeAll("Referer")
+        .removeAll("Origin")
         .add("upgrade-insecure-requests", "1")
         .add(
             "accept",
@@ -400,8 +402,8 @@ abstract class ScanManga :
         // navigation du site (sec-fetch-site: none, accept text/html…) qui trahissent un scraper.
         val origin = "${documentUrl.scheme}://${documentUrl.host}"
         val requestHeaders = headersBuilder()
-            .add("Origin", origin)
-            .add("Referer", "$origin/")
+            .set("Origin", origin)
+            .set("Referer", "$origin/")
             .add("source", documentUrl.toString())
             .add("Token", LEL_TOKEN)
             .add("sec-fetch-site", "same-site")
