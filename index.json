@@ -122,19 +122,19 @@
         "name": "ScanManga (non officiel)",
         "packageName": "eu.kanade.tachiyomi.extension.fr.scanmanganonofficiel",
         "resources": {
-          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.scanmanganonofficiel-v1.6.3.apk",
+          "apkUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/apk/tachiyomi-fr.scanmanganonofficiel-v1.6.4.apk",
           "iconUrl": "https://raw.githubusercontent.com/Yumesion/extensions/main/icon-scanmanganonofficiel.png"
         },
         "extensionLib": "1.6",
-        "versionCode": 106003,
-        "versionName": "1.6.3",
+        "versionCode": 106004,
+        "versionName": "1.6.4",
         "contentWarning": "MIXED",
         "sources": [
           {
             "id": 2677588162960881299,
             "name": "ScanManga (non officiel)",
             "language": "fr",
-            "homeUrl": "https://m.scan-manga.com",
+            "homeUrl": "https://www.scan-manga.com",
             "mirrorUrls": [],
             "message": null
           }
