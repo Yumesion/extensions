@@ -110,11 +110,13 @@ abstract class ScanManga :
 
     // Popular
     override suspend fun getPopularManga(page: Int): MangasPage {
-        val document = client.get(baseUrl, customHeaders).asJsoup()
-        val mangas = document.select("a.right_manga_top").map { element ->
+        val document = client.get("$desktopBaseUrl/TOP-Manga-Webtoon-47.html", customHeaders).asJsoup()
+        val mangas = document.select("#liste_series a[href*='scan-manga.com']").mapNotNull { element ->
+            val img = element.selectFirst("img") ?: return@mapNotNull null
             SManga.create().apply {
-                title = element.text()
+                title = img.attr("title").ifBlank { img.attr("alt") }
                 setUrlWithoutDomain(element.attr("href"))
+                thumbnail_url = img.attr("data-original")
             }
         }
         return MangasPage(mangas, false)
@@ -135,23 +137,20 @@ abstract class ScanManga :
     }
 
     // Search
+    // Le moteur de recherche du site est chargé en JS obfusqué (aucun endpoint JSON côté serveur).
+    // Repli : on filtre côté client le Top (~225 titres), seule liste complète servie en HTML.
     override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
-        val url = "$desktopBaseUrl/scanlation/liste_series.html".toHttpUrl().newBuilder()
-            .addQueryParameter("q", query)
-            .build()
-        val document = client.get(url, customHeaders).asJsoup()
-        val mangas = document.select("a[href*='scan-manga.com'][href\$='.html']").mapNotNull { element ->
-            val href = element.attr("href")
-            val title = element.text().trim()
-            if (title.isBlank()) return@mapNotNull null
-            // ne garder que les liens de manga (/ID/Slug.html), pas les chapitres/teams/pages
-            val path = href.substringAfter("scan-manga.com", "")
-            if (!path.matches(Regex("/\\d.*\\.html"))) return@mapNotNull null
+        val document = client.get("$desktopBaseUrl/TOP-Manga-Webtoon-47.html", customHeaders).asJsoup()
+        val mangas = document.select("#liste_series a[href*='scan-manga.com']").mapNotNull { element ->
+            val img = element.selectFirst("img") ?: return@mapNotNull null
+            val title = img.attr("title").ifBlank { img.attr("alt") }
+            if (title.isBlank() || !title.contains(query, ignoreCase = true)) return@mapNotNull null
             SManga.create().apply {
                 this.title = title
-                setUrlWithoutDomain(href)
+                setUrlWithoutDomain(element.attr("href"))
+                thumbnail_url = img.attr("data-original")
             }
-        }.distinctBy { it.url }
+        }
         return MangasPage(mangas, false)
     }
 
