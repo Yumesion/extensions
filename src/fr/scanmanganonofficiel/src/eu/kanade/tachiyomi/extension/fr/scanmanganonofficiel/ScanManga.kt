@@ -137,18 +137,28 @@ abstract class ScanManga :
     }
 
     // Search
-    // Le moteur de recherche du site est chargé en JS obfusqué (aucun endpoint JSON côté serveur).
-    // Repli : on filtre côté client le Top (~225 titres), seule liste complète servie en HTML.
+    // Le vrai moteur du site est JS ; le seul listing complet côté serveur est scan.data.json
+    // (~16 000 titres, aucun filtre serveur) → on filtre côté client par titre.
     override suspend fun getSearchMangaList(page: Int, query: String, filters: FilterList): MangasPage {
-        val document = client.get("$desktopBaseUrl/TOP-Manga-Webtoon-47.html", customHeaders).asJsoup()
-        val mangas = document.select("#liste_series a[href*='scan-manga.com']").mapNotNull { element ->
-            val img = element.selectFirst("img") ?: return@mapNotNull null
-            val title = img.attr("title").ifBlank { img.attr("alt") }
-            if (title.isBlank() || !title.contains(query, ignoreCase = true)) return@mapNotNull null
+        val headers = headersBuilder()
+            .set("Referer", "$desktopBaseUrl/scanlation/liste_series.html")
+            .set("Accept", "application/json, text/javascript, */*; q=0.01")
+            .set("sec-fetch-site", "cross-site")
+            .set("sec-fetch-mode", "cors")
+            .set("sec-fetch-dest", "empty")
+            .set("Accept-Language", "fr-FR,fr;q=0.9")
+            .build()
+        val map = client.get("https://bqj.$domain/scanlation/scan.data.json", headers).body.string()
+            .parseAs<Map<String, List<String>>>()
+        val mangas = map.mapNotNull { (title, fields) ->
+            if (!title.contains(query, ignoreCase = true)) return@mapNotNull null
+            val firstId = fields.getOrNull(0) ?: return@mapNotNull null
+            val slug = fields.getOrNull(1).orEmpty()
+            val secondId = fields.getOrNull(12).orEmpty()
             SManga.create().apply {
                 this.title = title
-                setUrlWithoutDomain(element.attr("href"))
-                thumbnail_url = img.attr("data-original")
+                val idPart = if (secondId.isNotEmpty()) "$firstId-$secondId" else firstId
+                setUrlWithoutDomain("/$idPart/$slug.html")
             }
         }
         return MangasPage(mangas, false)
