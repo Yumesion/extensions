@@ -382,16 +382,17 @@ abstract class ScanManga :
     }
 
     private suspend fun parsePageList(document: org.jsoup.nodes.Document): List<Page> {
-        val packedScript = document.selectFirst(PACKED_SCRIPT_SELECTOR)!!.data()
-        val unpackedScript = decodeHunter(packedScript)
+        val html = document.html()
 
-        val (sml) = SML_PARAM_REGEX.find(unpackedScript)?.destructured
+        // sml/sme/idc sont désormais dans un <script> séparé (var sml = '…'; const idc = …),
+        // plus dans le script packé `eval(function(...))`.
+        val (sml) = SML_PARAM_REGEX.find(html)?.destructured
             ?: error("Failed to extract sml parameter.")
 
-        val (sme) = SME_PARAM_REGEX.find(unpackedScript)?.destructured
+        val (sme) = SME_PARAM_REGEX.find(html)?.destructured
             ?: error("Failed to extract sme parameter.")
 
-        val (chapterId) = CHAPTER_INFO_REGEX.find(packedScript)?.destructured
+        val (chapterId) = CHAPTER_INFO_REGEX.find(html)?.destructured
             ?: error("Failed to extract chapter ID.")
 
         val availableVariables = mapOf(
